@@ -1,0 +1,34 @@
+# Конфиг nginx как обратного прокси перед Next.js (порт 3000).
+#
+# Установка:
+#   sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/mkm
+#   sudo nano /etc/nginx/sites-available/mkm   # заменить your-domain.ru
+#   sudo ln -s /etc/nginx/sites-available/mkm /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Дальше HTTPS через certbot (сам перепишет этот файл, добавив
+# server{listen 443 ssl} и редирект с 80 на 443):
+#   sudo apt install certbot python3-certbot-nginx
+#   sudo certbot --nginx -d your-domain.ru -d www.your-domain.ru
+#
+# Без HTTPS вход в админку не будет работать — cookie сессии
+# ставится с флагом Secure в production.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name your-domain.ru www.your-domain.ru;
+
+    client_max_body_size 12m; # чуть больше лимита загрузки картинок (10 МБ)
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

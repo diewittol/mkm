@@ -1,0 +1,31 @@
+# Systemd-юнит для запуска сайта МКМ на Ubuntu.
+#
+# Установка:
+#   sudo cp deploy/mkm.service.example /etc/systemd/system/mkm.service
+#   sudo nano /etc/systemd/system/mkm.service   # поправить пути/пользователя при необходимости
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mkm
+#
+# Next.js сам читает .env из WorkingDirectory — отдельно прокидывать
+# переменные через systemd не нужно.
+
+[Unit]
+Description=MKM Next.js site
+After=network.target
+
+[Service]
+Type=simple
+User=mkm
+WorkingDirectory=/var/www/mkm
+ExecStart=/usr/bin/env yarn start
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+# Небольшая защита процесса (не обязательно, но и не мешает)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
