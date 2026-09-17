@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Sync files to server
-        uses: easingthemes/ssh-deploy@v5
+        uses: easingthemes/ssh-deploy@v6
         with:
           SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           REMOTE_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -26,15 +26,7 @@ jobs:
           SOURCE: "./"
           TARGET: ${{ secrets.DEPLOY_PATH }}
           ARGS: "-rlgoDzvc -i --delete"
-          EXCLUDE: |
-            .git/
-            node_modules/
-            .next/
-            .env
-            .env.example
-            prisma/dev.db
-            prisma/dev.db-journal
-            public/uploads/
+          EXCLUDE: ".git/, node_modules/, .next/, .env, .env.example, prisma/dev.db, prisma/dev.db-journal, public/uploads/"
 
       - name: Install, migrate, build, restart
         uses: appleboy/ssh-action@v1
