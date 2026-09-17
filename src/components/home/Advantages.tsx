@@ -1,4 +1,4 @@
-import { PencilRuler, Hammer, ShieldCheck, Truck } from "lucide-react";
+import { PencilRuler, Cpu, ShieldCheck, Truck } from "lucide-react";
 import { Container } from "@/components/layout/Container";
 
 const ITEMS = [
@@ -9,10 +9,10 @@ const ITEMS = [
       "Изготовим мебель под ваше помещение — с точностью до миллиметра.",
   },
   {
-    icon: Hammer,
-    title: "Ручная работа",
+    icon: Cpu,
+    title: "Точность ЧПУ",
     description:
-      "Каждое изделие проходит через руки опытных мастеров-столяров.",
+      "Раскрой и кромкование каждой детали — на станках с ЧПУ. Миллиметровая точность и ни одного перекоса.",
   },
   {
     icon: ShieldCheck,

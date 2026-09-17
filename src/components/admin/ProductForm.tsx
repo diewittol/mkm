@@ -418,7 +418,7 @@ export const ProductForm = ({ mode, product, onSubmit }: ProductFormProps) => {
                 <textarea
                   id="product-seo-description"
                   rows={3}
-                  placeholder="Заказная кровать из массива дуба. Индивидуальные размеры, ручная работа, гарантия 5 лет."
+                  placeholder="Заказная кровать из массива дуба. Индивидуальные размеры, точный раскрой на ЧПУ, гарантия 5 лет."
                   className={`w-full resize-none rounded-lg border bg-white px-4 py-3 text-sm text-text outline-none transition placeholder:text-text/40 focus:border-primary ${
                     errors.seoDescription ? "border-red-500" : "border-border"
                   }`}
