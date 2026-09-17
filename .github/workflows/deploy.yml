@@ -1,0 +1,56 @@
+name: Deploy to server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync files to server
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          REMOTE_HOST: ${{ secrets.DEPLOY_HOST }}
+          REMOTE_USER: ${{ secrets.DEPLOY_USER }}
+          REMOTE_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+          SOURCE: "./"
+          TARGET: ${{ secrets.DEPLOY_PATH }}
+          ARGS: "-rlgoDzvc -i --delete"
+          EXCLUDE: |
+            .git/
+            node_modules/
+            .next/
+            .env
+            .env.example
+            prisma/dev.db
+            prisma/dev.db-journal
+            public/uploads/
+
+      - name: Install, migrate, build, restart
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            set -e
+            APP_DIR="${{ secrets.DEPLOY_PATH }}"
+            chown -R mkm:mkm "$APP_DIR"
+            cd "$APP_DIR"
+            sudo -u mkm yarn install --frozen-lockfile
+            sudo -u mkm npx prisma migrate deploy
+            sudo -u mkm yarn build
+            sudo -u mkm yarn cache clean
+            systemctl restart mkm
+            systemctl --no-pager --lines=5 status mkm
