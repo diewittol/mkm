@@ -94,7 +94,7 @@ export default async function ContactsPage() {
                 </div>
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wider text-text/50">
-                    Адрес мастерской
+                    Адрес магазина
                   </p>
                   <p className="mt-1 font-montserrat text-lg font-semibold text-text">
                     {settings.address}
