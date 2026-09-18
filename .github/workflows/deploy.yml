@@ -41,6 +41,7 @@ jobs:
             chown -R mkm:mkm "$APP_DIR"
             cd "$APP_DIR"
             sudo -u mkm yarn install --frozen-lockfile
+            sudo -u mkm npx prisma generate
             sudo -u mkm npx prisma migrate deploy
             sudo -u mkm yarn build
             sudo -u mkm yarn cache clean

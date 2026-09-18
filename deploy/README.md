@@ -19,6 +19,7 @@ sudo -u mkm cp .env.example .env
 sudo -u mkm nano .env   # ADMIN_PASSWORD, AUTH_SECRET (openssl rand -hex 32)
 
 # 4. База данных и сборка
+sudo -u mkm npx prisma generate
 sudo -u mkm npx prisma migrate deploy
 sudo -u mkm yarn build
 
@@ -43,6 +44,7 @@ sudo certbot --nginx -d your-domain.ru -d www.your-domain.ru
 cd /var/www/mkm
 sudo -u mkm git pull
 sudo -u mkm yarn install --frozen-lockfile
+sudo -u mkm npx prisma generate
 sudo -u mkm npx prisma migrate deploy
 sudo -u mkm yarn build
 sudo systemctl restart mkm
