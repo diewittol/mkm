@@ -21,6 +21,17 @@ server {
 
     client_max_body_size 12m; # чуть больше лимита загрузки картинок (10 МБ)
 
+    # Раздаём загруженные файлы напрямую, в обход Next.js.
+    # Production-сервер Next 16/Turbopack не видит файлы, добавленные
+    # в public/ после сборки — отдаём их через nginx, так и быстрее.
+    # Путь ниже должен совпадать с TARGET деплоя (см. deploy/README.md).
+    location /uploads/ {
+        alias /var/www/mkm/public/uploads/;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
