@@ -59,7 +59,7 @@ export default async function ContactsPage() {
                     {settings.phone}
                   </a>
                   <p className="mt-1 text-sm text-text/60">
-                    Пн–Пт, 10:00–19:00
+                    Пн–Пт, 9:00–18:00
                   </p>
                 </div>
               </div>
