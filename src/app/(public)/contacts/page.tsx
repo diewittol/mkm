@@ -133,10 +133,19 @@ export default async function ContactsPage() {
             )}
           </div>
 
-          {/* Карта-заглушка */}
-          <div className="aspect-[16/9] w-full overflow-hidden rounded-2xl bg-beige">
-            {/* Здесь будет карта. Пока — заглушка */}
-          </div>
+          {/* Карта */}
+          {settings?.address && (
+            <div className="aspect-[16/9] w-full overflow-hidden rounded-2xl bg-beige">
+              <iframe
+                src={`https://yandex.ru/map-widget/v1/?text=${encodeURIComponent(settings.address)}&z=16`}
+                width="100%"
+                height="100%"
+                style={{ border: 0 }}
+                loading="lazy"
+                title="Карта проезда"
+              />
+            </div>
+          )}
         </div>
 
         {/* Правая колонка: форма */}
