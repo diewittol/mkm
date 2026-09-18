@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
 import { Input } from "@/components/ui/Input";
 import { projectFormSchema, type ProjectFormValues } from "@/lib/schemas";
-import { SingleImageUploader } from "./SingleImageUploader";
+import { ImageUploader } from "./ImageUploader";
 
 interface ProjectFromApi {
   id: string;
@@ -14,7 +14,7 @@ interface ProjectFromApi {
   slug: string;
   description: string | null;
   location: string | null;
-  imageUrl: string | null;
+  images: { id: string; url: string }[];
   isPublished: boolean;
   order: number;
 }
@@ -50,11 +50,11 @@ export const ProjectForm = ({
       description: "",
       order: 0,
       isPublished: true,
-      imageUrl: null,
+      images: [],
     },
   });
 
-  const imageUrl = watch("imageUrl");
+  const images = watch("images") ?? [];
 
   useEffect(() => {
     if (project) {
@@ -65,7 +65,7 @@ export const ProjectForm = ({
         description: project.description ?? "",
         order: project.order,
         isPublished: project.isPublished,
-        imageUrl: project.imageUrl ?? null,
+        images: project.images,
       });
     } else {
       reset({
@@ -75,7 +75,7 @@ export const ProjectForm = ({
         description: "",
         order: 0,
         isPublished: true,
-        imageUrl: null,
+        images: [],
       });
     }
   }, [project, reset]);
@@ -84,11 +84,14 @@ export const ProjectForm = ({
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
       <div>
         <label className="mb-2 block text-sm font-medium text-text">
-          Изображение
+          Фотографии
         </label>
-        <SingleImageUploader
-          value={imageUrl}
-          onChange={(url) => setValue("imageUrl", url, { shouldDirty: true })}
+        <p className="mb-3 text-xs text-text/50">
+          Первая фотография будет главной в каталоге проектов.
+        </p>
+        <ImageUploader
+          images={images}
+          onChange={(next) => setValue("images", next, { shouldDirty: true })}
         />
       </div>
       <Input

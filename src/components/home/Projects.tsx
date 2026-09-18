@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 export const Projects = async () => {
   const projects = await prisma.project.findMany({
     where: { isPublished: true },
+    include: { images: { orderBy: { order: "asc" }, take: 1 } },
     orderBy: { order: "asc" },
     take: 3,
   });
@@ -44,9 +45,9 @@ export const Projects = async () => {
             >
               <article className="overflow-hidden rounded-2xl">
                 <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-white/5">
-                  {project.imageUrl ? (
+                  {project.images[0]?.url ? (
                     <Image
-                      src={project.imageUrl}
+                      src={project.images[0].url}
                       alt={project.title}
                       fill
                       sizes="(min-width: 768px) 33vw, 100vw"

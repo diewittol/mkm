@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { ProjectForm } from "@/components/admin/ProjectForm";
@@ -12,7 +13,7 @@ interface ProjectFromApi {
   slug: string;
   description: string | null;
   location: string | null;
-  imageUrl: string | null;
+  images: { id: string; url: string }[];
   isPublished: boolean;
   order: number;
 }
@@ -149,7 +150,17 @@ export default function AdminProjectsPage() {
                     className="border-b border-border last:border-0 hover:bg-background/50"
                   >
                     <td className="px-5 py-3">
-                      <div className="h-12 w-12 rounded-lg bg-beige" />
+                      <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-beige">
+                        {project.images[0]?.url && (
+                          <Image
+                            src={project.images[0].url}
+                            alt={project.title}
+                            fill
+                            sizes="48px"
+                            className="object-cover"
+                          />
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-3">
                       <span className="font-medium text-text">

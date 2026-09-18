@@ -44,10 +44,21 @@ export async function PATCH(
       slug: body.slug,
       description: body.description || null,
       location: body.location || null,
-      imageUrl: body.imageUrl || null,
       order: body.order,
       isPublished: body.isPublished,
+      images: body.images
+        ? {
+            deleteMany: {},
+            create: body.images.map(
+              (img: { url: string }, index: number) => ({
+                url: img.url,
+                order: index,
+              }),
+            ),
+          }
+        : undefined,
     },
+    include: { images: { orderBy: { order: "asc" } } },
   });
 
   return NextResponse.json(project);

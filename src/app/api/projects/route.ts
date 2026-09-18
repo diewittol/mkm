@@ -11,6 +11,7 @@ export async function GET() {
   }
 
   const projects = await prisma.project.findMany({
+    include: { images: { orderBy: { order: "asc" } } },
     orderBy: { order: "asc" },
   });
 
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { title, slug, description, location, imageUrl, order, isPublished } =
+  const { title, slug, description, location, images, order, isPublished } =
     body;
 
   if (!title || !slug) {
@@ -48,10 +49,16 @@ export async function POST(request: Request) {
       slug,
       description: description || null,
       location: location || null,
-      imageUrl: imageUrl || null,
       order: order ?? 0,
       isPublished: isPublished ?? false,
+      images: {
+        create: (images ?? []).map((img: { url: string }, index: number) => ({
+          url: img.url,
+          order: index,
+        })),
+      },
     },
+    include: { images: { orderBy: { order: "asc" } } },
   });
 
   return NextResponse.json(project, { status: 201 });

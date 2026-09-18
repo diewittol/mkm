@@ -65,7 +65,14 @@ export const projectFormSchema = z.object({
     .int("Целое число")
     .min(0, "Не может быть отрицательным"),
   isPublished: z.boolean(),
-  imageUrl: z.string().nullable().optional(),
+  images: z
+    .array(
+      z.object({
+        id: z.string(),
+        url: z.string(),
+      }),
+    )
+    .default([]),
 });
 
 export type ProjectFormValues = z.infer<typeof projectFormSchema>;

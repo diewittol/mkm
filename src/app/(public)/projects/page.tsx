@@ -15,6 +15,7 @@ export const metadata = {
 export default async function ProjectsPage() {
   const projects = await prisma.project.findMany({
     where: { isPublished: true },
+    include: { images: { orderBy: { order: "asc" }, take: 1 } },
     orderBy: { order: "asc" },
   });
 
@@ -55,9 +56,9 @@ export default async function ProjectsPage() {
             >
               <article className="overflow-hidden rounded-2xl border border-border bg-white transition hover:-translate-y-1 hover:shadow-lg">
                 <div className="relative aspect-[4/5] overflow-hidden bg-beige">
-                  {project.imageUrl && (
+                  {project.images[0]?.url && (
                     <Image
-                      src={project.imageUrl}
+                      src={project.images[0].url}
                       alt={project.title}
                       fill
                       sizes="(min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw"

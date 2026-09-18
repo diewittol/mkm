@@ -113,11 +113,25 @@ model Project {
   slug        String   @unique
   description String?
   location    String?
-  imageUrl    String?
 
   isPublished Boolean  @default(false)
   order       Int      @default(0)
 
+  images ProjectImage[]
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Фотографии проекта
+model ProjectImage {
+  id        String  @id @default(cuid())
+  projectId String
+  url       String
+  alt       String?
+  order     Int     @default(0)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }

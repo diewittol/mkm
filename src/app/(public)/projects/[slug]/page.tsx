@@ -30,6 +30,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   const project = await prisma.project.findUnique({
     where: { slug },
+    include: { images: { orderBy: { order: "asc" } } },
   });
 
   if (!project || !project.isPublished) {
@@ -63,10 +64,10 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
       {/* Главное фото */}
       <div className="relative mt-8 aspect-[16/9] w-full overflow-hidden rounded-2xl bg-beige">
-        {project.imageUrl && (
+        {project.images[0]?.url && (
           <Image
-            src={project.imageUrl}
-            alt={project.title}
+            src={project.images[0].url}
+            alt={project.images[0].alt ?? project.title}
             fill
             priority
             sizes="(min-width: 1024px) 1024px, 100vw"
@@ -74,6 +75,26 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
           />
         )}
       </div>
+
+      {/* Остальные фото */}
+      {project.images.length > 1 && (
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {project.images.slice(1).map((img) => (
+            <div
+              key={img.id}
+              className="relative aspect-square overflow-hidden rounded-xl bg-beige"
+            >
+              <Image
+                src={img.url}
+                alt={img.alt ?? project.title}
+                fill
+                sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+                className="object-cover"
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Описание */}
       {project.description && (
