@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAuthenticated } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { notifyNewApplication } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,9 @@ export async function POST(request: Request) {
       status: "new",
     },
   });
+
+  // Не ждём ответа Telegram, чтобы не задерживать ответ посетителю
+  void notifyNewApplication({ name, phone, message, productName });
 
   return NextResponse.json(application, { status: 201 });
 }
