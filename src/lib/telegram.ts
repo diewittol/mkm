@@ -341,3 +341,41 @@ export async function reactToMessage(chatId: string | number, messageId: number)
   });
   return ok === true;
 }
+
+// Отправляет сохранённое голосовое/аудио обратно в чат.
+// ogg (Telegram-голосовые, Opus) уходит как голосовое, остальное — как аудио.
+export async function sendAudioFile(
+  chatId: string | number,
+  file: { data: Buffer; kind: "ogg" | "mp3" | "m4a"; caption?: string },
+) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return false;
+
+  const isVoice = file.kind === "ogg";
+  const mime = { ogg: "audio/ogg", mp3: "audio/mpeg", m4a: "audio/mp4" }[file.kind];
+
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append(
+    isVoice ? "voice" : "audio",
+    new Blob([new Uint8Array(file.data)], { type: mime }),
+    `${isVoice ? "voice" : "audio"}.${file.kind}`,
+  );
+  if (file.caption) form.append("caption", file.caption.slice(0, 1000));
+
+  const method = isVoice ? "sendVoice" : "sendAudio";
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(FILE_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.error(`Telegram ${method} failed:`, response.status, await response.text().catch(() => ""));
+    }
+    return response.ok;
+  } catch (error) {
+    console.error(`Telegram ${method} error:`, error);
+    return false;
+  }
+}

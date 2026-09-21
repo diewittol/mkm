@@ -195,6 +195,8 @@ model ApplicationNote {
   author        String   // @username, имя из Telegram или «админка»
   text          String?
   photo         String?  // имя файла в private-uploads/orders
+  audio         String?  // голосовое (ogg/mp3/m4a), там же
+  audioSeconds  Int?     // длительность, если известна
   createdAt     DateTime @default(now())
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)

@@ -9,6 +9,8 @@ interface NoteFromApi {
   author: string;
   text: string | null;
   photo: string | null;
+  audio: string | null;
+  audioSeconds: number | null;
   createdAt: string;
 }
 
@@ -48,10 +50,16 @@ export const ApplicationNotes = ({
     onCountChange?.(next.length);
   };
 
-  const send = async (payload: { text?: string; photo?: File }) => {
+  const send = async (payload: { text?: string; file?: File }) => {
     const form = new FormData();
     if (payload.text) form.append("text", payload.text);
-    if (payload.photo) form.append("photo", payload.photo);
+    if (payload.file) {
+      // Аудио и фото идут в разные поля, сервер проверяет содержимое
+      const isAudio =
+        payload.file.type.startsWith("audio/") ||
+        /\.(ogg|oga|opus|mp3|m4a)$/i.test(payload.file.name);
+      form.append(isAudio ? "audio" : "photo", payload.file);
+    }
 
     const response = await fetch(base, { method: "POST", body: form });
     if (!response.ok) {
@@ -74,8 +82,8 @@ export const ApplicationNotes = ({
       } else {
         // Фото по одному (у сервера лимит на размер запроса); текст — к первому
         for (let i = 0; i < files.length; i++) {
-          setProgress(`Загружаем фото ${i + 1} из ${files.length}…`);
-          added.push(await send({ photo: files[i], text: i === 0 ? trimmed : undefined }));
+          setProgress(`Загружаем файл ${i + 1} из ${files.length}…`);
+          added.push(await send({ file: files[i], text: i === 0 ? trimmed : undefined }));
         }
       }
       setText("");
@@ -133,6 +141,31 @@ export const ApplicationNotes = ({
                 <p className="mt-1.5 whitespace-pre-wrap text-sm text-text">{note.text}</p>
               )}
 
+              {note.audio && (
+                <div className="mt-2">
+                  <audio
+                    controls
+                    preload="none"
+                    src={`${base}/${note.id}/audio`}
+                    className="w-full max-w-xs"
+                  />
+                  <p className="mt-1 text-xs text-text/40">
+                    Голосовое
+                    {note.audioSeconds
+                      ? `, ${Math.floor(note.audioSeconds / 60)}:${String(note.audioSeconds % 60).padStart(2, "0")}`
+                      : ""}
+                    {" · "}
+                    <a
+                      href={`${base}/${note.id}/audio`}
+                      download
+                      className="underline hover:text-primary"
+                    >
+                      скачать
+                    </a>
+                  </p>
+                </div>
+              )}
+
               {note.photo && (
                 <a
                   href={`${base}/${note.id}/photo`}
@@ -160,13 +193,13 @@ export const ApplicationNotes = ({
           onChange={(e) => setText(e.target.value)}
           rows={3}
           maxLength={2000}
-          placeholder="Размеры, пожелания, материал, цвет…"
+          placeholder="Размеры, пожелания, материал, цвет… Можно прикрепить фото и голосовые."
           className="w-full resize-none rounded-lg border border-border bg-white px-4 py-3 text-sm text-text outline-none transition placeholder:text-text/40 focus:border-primary"
         />
         <input
           ref={fileInput}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/avif"
+          accept="image/jpeg,image/png,image/webp,image/avif,audio/ogg,audio/mpeg,audio/mp4,audio/x-m4a,.ogg,.oga,.opus,.mp3,.m4a"
           multiple
           className="block w-full text-sm text-text/70 file:mr-3 file:rounded-lg file:border-0 file:bg-beige file:px-4 file:py-2 file:text-sm file:font-medium file:text-text"
         />

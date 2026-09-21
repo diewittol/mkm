@@ -24,11 +24,15 @@ function describeMessage(message: Record<string, unknown>) {
   const imageDocument = document?.mime_type?.startsWith("image/") ? document : undefined;
 
   const source = largestPhoto ?? imageDocument;
+
+  // Голосовое (OGG/Opus) или аудиофайл
+  const audio = (message.voice ?? message.audio) as
+    | { file_id?: string; file_size?: number; duration?: number }
+    | undefined;
+
   const hasOtherMedia = Boolean(
     (document && !imageDocument) ||
       message.video ||
-      message.voice ||
-      message.audio ||
       message.video_note ||
       message.animation ||
       message.sticker,
@@ -39,6 +43,9 @@ function describeMessage(message: Record<string, unknown>) {
     caption: typeof message.caption === "string" ? message.caption : undefined,
     photoFileId: source?.file_id,
     photoSize: source?.file_size,
+    audioFileId: audio?.file_id,
+    audioSize: audio?.file_size,
+    audioSeconds: audio?.duration,
     unsupported: hasOtherMedia,
   };
 }
@@ -63,7 +70,12 @@ export async function POST(request: Request) {
       await handleCallback(query);
     } else if (message?.from && message.chat?.type === "private") {
       const parts = describeMessage(message);
-      if (parts.text !== undefined || parts.photoFileId || parts.unsupported) {
+      if (
+        parts.text !== undefined ||
+        parts.photoFileId ||
+        parts.audioFileId ||
+        parts.unsupported
+      ) {
         await handleMessage({
           chatId: message.chat.id,
           messageId: message.message_id,

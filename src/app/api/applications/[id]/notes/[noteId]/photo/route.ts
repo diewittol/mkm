@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAuthenticated } from "@/lib/auth";
-import { readOrderPhoto } from "@/lib/order-files";
+import { readOrderFile } from "@/lib/order-files";
 
 export const runtime = "nodejs";
 
@@ -19,7 +19,7 @@ export async function GET(
     where: { id: noteId, applicationId: id },
     select: { photo: true },
   });
-  const file = note?.photo ? await readOrderPhoto(note.photo) : null;
+  const file = note?.photo ? await readOrderFile(note.photo) : null;
   if (!file) {
     return NextResponse.json({ error: "Фото не найдено" }, { status: 404 });
   }

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createManualApplication } from "@/lib/manual-application";
 import { parsePhone } from "@/lib/phone";
 import { addApplicationNote, deleteApplicationWithFiles } from "@/lib/order-notes";
-import { MAX_PHOTO_BYTES, readOrderPhoto } from "@/lib/order-files";
+import { MAX_PHOTO_BYTES, readOrderFile, sniffAudio } from "@/lib/order-files";
 import { APPLICATION_STATUS_LABELS } from "@/types/application";
 import {
   answerCallback,
@@ -17,6 +17,7 @@ import {
   downloadTelegramFile,
   reactToMessage,
   sendPhotoAlbum,
+  sendAudioFile,
   type ApplicationForTelegram,
   type KeyboardBack,
 } from "@/lib/telegram";
@@ -233,6 +234,9 @@ async function cardView(
   };
 }
 
+const formatDuration = (seconds: number) =>
+  `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+
 // Лента заметок и фото заявки
 const NOTES_SHOWN = 8;
 const NOTE_PREVIEW_CHARS = 300;
@@ -247,6 +251,9 @@ async function notesView(id: string, back?: KeyboardBack): Promise<View | null> 
   const total = await prisma.applicationNote.count({ where: { applicationId: id } });
   const photos = await prisma.applicationNote.count({
     where: { applicationId: id, photo: { not: null } },
+  });
+  const voices = await prisma.applicationNote.count({
+    where: { applicationId: id, audio: { not: null } },
   });
   const recent = (
     await prisma.applicationNote.findMany({
@@ -275,7 +282,12 @@ async function notesView(id: string, back?: KeyboardBack): Promise<View | null> 
               : note.text,
           )
         : "";
-      const body = [text, note.photo ? "[фото]" : ""].filter(Boolean).join(" ");
+      const mark = note.audio
+        ? `[голосовое${note.audioSeconds ? ` ${formatDuration(note.audioSeconds)}` : ""}]`
+        : note.photo
+          ? "[фото]"
+          : "";
+      const body = [text, mark].filter(Boolean).join(" ");
       lines.push(`<i>${formatDate(note.createdAt)} ${escapeHtml(note.author)}</i>
 ${body}`, "");
     }
@@ -287,6 +299,9 @@ ${body}`, "");
   ];
   if (photos > 0) {
     rows.push([{ text: `Показать фото (${photos})`, callback_data: `np:${id}` }]);
+  }
+  if (voices > 0) {
+    rows.push([{ text: `Прослушать голосовые (${voices})`, callback_data: `nv:${id}` }]);
   }
   rows.push([{ text: "К заявке", callback_data: `op:${id}${ctx}` }]);
 
@@ -642,6 +657,9 @@ export interface IncomingMessage {
   caption?: string;
   photoFileId?: string;
   photoSize?: number;
+  audioFileId?: string;
+  audioSize?: number;
+  audioSeconds?: number;
   // Вложение, которое бот пока не принимает (видео, голосовое, не-картинка)
   unsupported?: boolean;
 }
@@ -672,21 +690,31 @@ async function saveNoteFromChat(
 ) {
   const { chatId, from } = msg;
 
+  // Вложение: фото или голосовое — скачиваем у Telegram
+  const fileId = msg.photoFileId ?? msg.audioFileId;
+  const fileSize = msg.photoFileId ? msg.photoSize : msg.audioSize;
+  const isAudio = !msg.photoFileId && !!msg.audioFileId;
+
   let photo: Buffer | null = null;
-  if (msg.photoFileId) {
-    if (msg.photoSize && msg.photoSize > MAX_PHOTO_BYTES) {
-      return sendMessage(chatId, "Файл больше 10 МБ. Отправьте фото поменьше.");
+  let audio: Buffer | null = null;
+  if (fileId) {
+    if (fileSize && fileSize > MAX_PHOTO_BYTES) {
+      return sendMessage(chatId, "Файл больше 10 МБ. Отправьте поменьше.");
     }
-    const downloaded = await downloadTelegramFile(msg.photoFileId, MAX_PHOTO_BYTES);
+    const downloaded = await downloadTelegramFile(fileId, MAX_PHOTO_BYTES);
     if (!downloaded.ok) {
       return sendMessage(
         chatId,
         downloaded.reason === "too_large"
-          ? "Файл больше 10 МБ. Отправьте фото поменьше."
-          : "Не удалось получить фото от Telegram, отправьте ещё раз.",
+          ? "Файл больше 10 МБ. Отправьте поменьше."
+          : "Не удалось получить файл от Telegram, отправьте ещё раз.",
       );
     }
-    photo = downloaded.data;
+    if (isAudio) {
+      audio = downloaded.data;
+    } else {
+      photo = downloaded.data;
+    }
   }
 
   try {
@@ -695,11 +723,15 @@ async function saveNoteFromChat(
       author: displayName(from),
       text,
       photo,
+      audio,
+      audioSeconds: audio ? (msg.audioSeconds ?? null) : null,
     });
   } catch {
     return sendMessage(
       chatId,
-      "Не удалось сохранить. Проверьте, что это фото (JPG, PNG, WEBP), и что заявку не удалили.",
+      isAudio
+        ? "Не удалось сохранить. Поддерживаются голосовые и аудио OGG, MP3, M4A; проверьте и то, что заявку не удалили."
+        : "Не удалось сохранить. Проверьте, что это фото (JPG, PNG, WEBP), и что заявку не удалили.",
     );
   }
 
@@ -732,16 +764,16 @@ export async function handleMessage(msg: IncomingMessage) {
   const userId = String(from.id);
 
   // Вложения: фото (или картинка-файл) идёт в заметки открытой заявки
-  if (msg.photoFileId || msg.unsupported) {
+  if (msg.photoFileId || msg.audioFileId || msg.unsupported) {
     const noteDraft = await activeNoteDraft(userId);
     if (!noteDraft?.applicationId) {
       return sendMessage(
         chatId,
-        "Чтобы прикрепить фото к заказу, откройте заявку и нажмите «Заметки и фото», затем «Добавить».",
+        "Чтобы прикрепить фото или голосовое к заказу, откройте заявку, нажмите «Заметки и фото», затем «Добавить».",
       );
     }
-    if (!msg.photoFileId) {
-      return sendMessage(chatId, "Пока принимаю только текст и фото (можно отправить как файл).");
+    if (!msg.photoFileId && !msg.audioFileId) {
+      return sendMessage(chatId, "Пока принимаю текст, фото и голосовые (видео и прочее — нет).");
     }
     return saveNoteFromChat(msg, userId, noteDraft.applicationId, msg.caption?.trim());
   }
@@ -1078,7 +1110,7 @@ export async function handleCallback(query: IncomingCallback) {
       const files = (
         await Promise.all(
           notes.reverse().map(async (note) => {
-            const data = note.photo ? await readOrderPhoto(note.photo) : null;
+            const data = note.photo ? await readOrderFile(note.photo) : null;
             return data
               ? {
                   data,
@@ -1096,6 +1128,40 @@ export async function handleCallback(query: IncomingCallback) {
         return;
       }
       await sendPhotoAlbum(chatId, files);
+      break;
+    }
+
+    // nv:<id> — прислать голосовые заявки (последние 5)
+    case "nv": {
+      const [id] = rest;
+      const voices = id
+        ? await prisma.applicationNote.findMany({
+            where: { applicationId: id, audio: { not: null } },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+          })
+        : [];
+
+      let sent = 0;
+      for (const note of voices.reverse()) {
+        const data = note.audio ? await readOrderFile(note.audio) : null;
+        const kind = data ? sniffAudio(data) : null;
+        if (!data || !kind) continue;
+
+        await sendAudioFile(chatId, {
+          data,
+          kind,
+          caption: [`${formatDate(note.createdAt)} ${note.author}`, note.text]
+            .filter(Boolean)
+            .join(": "),
+        });
+        sent++;
+      }
+
+      if (sent === 0) {
+        await answerCallback(query.id, "Голосовые не найдены");
+        return;
+      }
       break;
     }
 

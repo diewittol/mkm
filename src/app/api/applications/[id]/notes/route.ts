@@ -22,7 +22,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
   return NextResponse.json(notes);
 }
 
-// POST /api/applications/:id/notes — multipart: text (необязательно) и photo (необязательно)
+// POST /api/applications/:id/notes — multipart: text, photo и/или audio (всё необязательно, но не пусто)
 export async function POST(request: Request, { params }: RouteContext) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
@@ -36,18 +36,28 @@ export async function POST(request: Request, { params }: RouteContext) {
 
   const form = await request.formData().catch(() => null);
   const text = typeof form?.get("text") === "string" ? String(form?.get("text")) : "";
-  const file = form?.get("photo");
+  const photoFile = form?.get("photo");
+  const audioFile = form?.get("audio");
 
   let photo: Buffer | null = null;
-  if (file instanceof File && file.size > 0) {
-    if (file.size > MAX_PHOTO_BYTES) {
-      return NextResponse.json({ error: "Фото больше 10 МБ" }, { status: 400 });
+  let audio: Buffer | null = null;
+  for (const [file, label] of [
+    [photoFile, "Фото"],
+    [audioFile, "Аудио"],
+  ] as const) {
+    if (file instanceof File && file.size > MAX_PHOTO_BYTES) {
+      return NextResponse.json({ error: `${label} больше 10 МБ` }, { status: 400 });
     }
-    photo = Buffer.from(await file.arrayBuffer());
+  }
+  if (photoFile instanceof File && photoFile.size > 0) {
+    photo = Buffer.from(await photoFile.arrayBuffer());
+  }
+  if (audioFile instanceof File && audioFile.size > 0) {
+    audio = Buffer.from(await audioFile.arrayBuffer());
   }
 
-  if (!text.trim() && !photo) {
-    return NextResponse.json({ error: "Добавьте текст или фото" }, { status: 400 });
+  if (!text.trim() && !photo && !audio) {
+    return NextResponse.json({ error: "Добавьте текст, фото или голосовое" }, { status: 400 });
   }
 
   try {
@@ -56,11 +66,12 @@ export async function POST(request: Request, { params }: RouteContext) {
       author: "админка",
       text,
       photo,
+      audio,
     });
     return NextResponse.json(note, { status: 201 });
   } catch {
     return NextResponse.json(
-      { error: "Не удалось сохранить: файл должен быть изображением (JPG, PNG, WEBP)" },
+      { error: "Не удалось сохранить: нужно изображение (JPG, PNG, WEBP) или аудио (OGG, MP3, M4A)" },
       { status: 400 },
     );
   }
