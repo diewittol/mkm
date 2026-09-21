@@ -74,7 +74,13 @@ export async function POST(request: Request) {
   });
 
   // Не ждём ответа Telegram, чтобы не задерживать ответ посетителю
-  void notifyNewApplication({ name, phone, message, productName });
+  void notifyNewApplication({
+    id: application.id,
+    name,
+    phone,
+    message,
+    productName,
+  });
 
   return NextResponse.json(application, { status: 201 });
 }
