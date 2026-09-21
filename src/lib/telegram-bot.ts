@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { APPLICATION_STATUS_LABELS } from "@/types/application";
 import {
@@ -8,17 +9,21 @@ import {
   escapeHtml,
   isButtonStatus,
   sendMessage,
+  telegramCall,
   type ApplicationForTelegram,
   type KeyboardBack,
 } from "@/lib/telegram";
 
 type ListFilter = "n" | "w" | "a";
+export type Role = "owner" | "manager";
 
 const PAGE_SIZE = 10;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const MSK_OFFSET_MS = 3 * HOUR_MS;
 const SEARCH_SCAN_LIMIT = 500;
+const INVITE_TTL_MS = DAY_MS;
+const INVITE_PREFIX = "inv_";
 
 const FILTERS: Record<ListFilter, { title: string; status?: string }> = {
   n: { title: "Новые заявки", status: "new" },
@@ -40,21 +45,43 @@ const MENU = {
   all: "Все заявки",
   stats: "Сводка",
   search: "Поиск",
+  access: "Доступ",
 } as const;
 
-const MENU_KEYBOARD = {
-  keyboard: [
+function menuKeyboard(role: Role) {
+  const rows = [
     [{ text: MENU.new }, { text: MENU.work }],
     [{ text: MENU.all }, { text: MENU.stats }],
-    [{ text: MENU.search }],
-  ],
-  resize_keyboard: true,
-  is_persistent: true,
-};
+    [{ text: MENU.search }, ...(role === "owner" ? [{ text: MENU.access }] : [])],
+  ];
+  return { keyboard: rows, resize_keyboard: true, is_persistent: true };
+}
 
 interface View {
   text: string;
   markup?: unknown;
+}
+
+interface TelegramFrom {
+  id: number;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+const displayName = (from: TelegramFrom) =>
+  from.username
+    ? `@${from.username}`
+    : [from.first_name, from.last_name].filter(Boolean).join(" ").trim() ||
+      "без имени";
+
+// Владелец задан в .env (TELEGRAM_CHAT_ID), остальные — в таблице TelegramUser
+export async function getRole(userId: string): Promise<Role | null> {
+  if (userId === process.env.TELEGRAM_CHAT_ID) return "owner";
+  const user = await prisma.telegramUser.findUnique({
+    where: { chatId: userId },
+  });
+  return user ? "manager" : null;
 }
 
 function ago(date: Date): string {
@@ -135,6 +162,7 @@ async function listView(filter: ListFilter, page: number): Promise<View> {
 
 async function cardView(
   id: string,
+  role: Role,
   back?: KeyboardBack,
   note?: string,
 ): Promise<View | null> {
@@ -157,7 +185,11 @@ async function cardView(
       title: `Заявка от ${formatDate(application.createdAt)}`,
       statusNote: note ?? `Статус: ${statusLabel(application.status)}`,
     }),
-    markup: buildKeyboard(app, application.status, { card: true, back }),
+    markup: buildKeyboard(app, application.status, {
+      card: true,
+      back,
+      canDelete: role === "owner",
+    }),
   };
 }
 
@@ -232,6 +264,83 @@ async function searchView(query: string): Promise<View> {
   };
 }
 
+// Раздел «Доступ» (только владелец): люди с доступом и приглашение
+async function accessView(): Promise<View> {
+  const managers = await prisma.telegramUser.findMany({
+    orderBy: { createdAt: "asc" },
+  });
+
+  const lines = [
+    "<b>Доступ к боту</b>",
+    "",
+    "Владелец: вы",
+    managers.length
+      ? `Менеджеры (${managers.length}): нажмите на имя, чтобы отозвать доступ.`
+      : "Менеджеров пока нет.",
+  ];
+
+  const rows = managers.map((m) => [
+    {
+      text: `Отозвать: ${m.name} (с ${formatDate(m.createdAt).split(",")[0]})`.slice(0, 60),
+      callback_data: `rv:${m.id}`,
+    },
+  ]);
+  rows.push([{ text: "Пригласить менеджера", callback_data: "iv" }]);
+
+  return { text: lines.join("\n"), markup: { inline_keyboard: rows } };
+}
+
+async function createInviteLink(): Promise<string | null> {
+  const username = process.env.TELEGRAM_BOT_USERNAME;
+  if (!username) return null;
+
+  // Заодно чистим старые использованные и просроченные приглашения
+  await prisma.telegramInvite.deleteMany({
+    where: { expiresAt: { lt: new Date(Date.now() - 7 * DAY_MS) } },
+  });
+
+  const token = randomBytes(16).toString("hex");
+  await prisma.telegramInvite.create({
+    data: { token, expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
+  });
+
+  return `https://t.me/${username}?start=${INVITE_PREFIX}${token}`;
+}
+
+async function acceptInvite(
+  chatId: number,
+  from: TelegramFrom,
+  token: string,
+) {
+  // Атомарно «сжигаем» приглашение: сработает только один раз
+  const { count } = await prisma.telegramInvite.updateMany({
+    where: { token, usedAt: null, expiresAt: { gt: new Date() } },
+    data: { usedAt: new Date() },
+  });
+
+  if (count !== 1) {
+    return sendMessage(chatId, "Приглашение недействительно или уже использовано.");
+  }
+
+  const name = displayName(from);
+  await prisma.telegramUser.upsert({
+    where: { chatId: String(from.id) },
+    create: { chatId: String(from.id), name },
+    update: { name },
+  });
+
+  const owner = process.env.TELEGRAM_CHAT_ID;
+  if (owner) {
+    await sendMessage(owner, `${escapeHtml(name)} получил(а) доступ к боту заявок.`);
+  }
+
+  return sendMessage(
+    chatId,
+    "Доступ выдан. Теперь сюда будут приходить новые заявки, а кнопки под полем ввода покажут списки, сводку и поиск.",
+    menuKeyboard("manager"),
+  );
+}
+
 const send = (chatId: string | number, view: View) =>
   sendMessage(chatId, view.text, view.markup);
 
@@ -241,19 +350,34 @@ const edit = (chatId: number, messageId: number, view: View) =>
 const backFrom = (filter?: string, page?: string): KeyboardBack | undefined =>
   isFilter(filter) ? { filter, page: Number(page) || 0 } : undefined;
 
-// Обычные сообщения из чата: кнопки меню, команды и поиск
-export async function handleMessage(chatId: number, text: string) {
+export interface IncomingMessage {
+  chatId: number;
+  from: TelegramFrom;
+  text: string;
+}
+
+// Обычные сообщения из личного чата: кнопки меню, команды, поиск, приглашения
+export async function handleMessage({ chatId, from, text }: IncomingMessage) {
   const trimmed = text.trim();
-  const command = trimmed.startsWith("/")
-    ? trimmed.split(/[\s@]/)[0].toLowerCase()
-    : null;
+  const [head, arg] = trimmed.split(/\s+/);
+  const command = head.startsWith("/") ? head.split("@")[0].toLowerCase() : null;
+
+  const role = await getRole(String(from.id));
+
+  if (!role) {
+    if (command === "/start" && arg?.startsWith(INVITE_PREFIX)) {
+      return acceptInvite(chatId, from, arg.slice(INVITE_PREFIX.length));
+    }
+    return sendMessage(chatId, "Доступ к боту только по приглашению.");
+  }
+
   const key = command ?? trimmed;
 
-  if (key === "/start" || key === "/menu") {
+  if (command === "/start" || command === "/menu") {
     return sendMessage(
       chatId,
       "Меню заявок включено. Кнопки под полем ввода: списки заявок, сводка и поиск.",
-      MENU_KEYBOARD,
+      menuKeyboard(role),
     );
   }
 
@@ -261,6 +385,10 @@ export async function handleMessage(chatId: number, text: string) {
   if (key === MENU.work || key === "/work") return send(chatId, await listView("w", 0));
   if (key === MENU.all || key === "/all") return send(chatId, await listView("a", 0));
   if (key === MENU.stats || key === "/stats") return send(chatId, await statsView());
+
+  if (role === "owner" && (key === MENU.access || key === "/access")) {
+    return send(chatId, await accessView());
+  }
 
   if (key === MENU.search || key === "/search") {
     return sendMessage(
@@ -277,22 +405,31 @@ export async function handleMessage(chatId: number, text: string) {
   return send(chatId, await searchView(trimmed));
 }
 
-interface CallbackQuery {
+export interface IncomingCallback {
   id: string;
   data: string;
-  from: { username?: string; first_name?: string };
+  from: TelegramFrom;
   message: { message_id: number; chat: { id: number } };
 }
 
 // Нажатия на inline-кнопки
-export async function handleCallback(query: CallbackQuery) {
+export async function handleCallback(query: IncomingCallback) {
+  const role = await getRole(String(query.from.id));
+  if (!role) {
+    await answerCallback(query.id, "Нет доступа");
+    return;
+  }
+
   const [kind, ...rest] = query.data.split(":");
   const chatId = query.message.chat.id;
   const messageId = query.message.message_id;
+  const who = displayName(query.from);
 
-  const who = query.from.username
-    ? `@${query.from.username}`
-    : query.from.first_name?.trim() || "менеджер";
+  const ownerOnly = async () => {
+    if (role === "owner") return false;
+    await answerCallback(query.id, "Это действие доступно только владельцу");
+    return true;
+  };
 
   switch (kind) {
     // st:<id>:<status>[:<filter>:<page>] — смена статуса
@@ -310,7 +447,7 @@ export async function handleCallback(query: CallbackQuery) {
       const note = `${statusLabel(status)} — ${who}`;
       if (filter !== undefined) {
         // Карточка из списка/поиска
-        const view = await cardView(id, backFrom(filter, page), note);
+        const view = await cardView(id, role, backFrom(filter, page), note);
         if (view) await edit(chatId, messageId, view);
       } else {
         // Исходное уведомление о заявке
@@ -350,7 +487,7 @@ export async function handleCallback(query: CallbackQuery) {
     // op:<id>:<filter>:<page> — открыть карточку
     case "op": {
       const [id, filter, page] = rest;
-      const view = id ? await cardView(id, backFrom(filter, page)) : null;
+      const view = id ? await cardView(id, role, backFrom(filter, page)) : null;
       if (!view) {
         await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
         return;
@@ -361,6 +498,7 @@ export async function handleCallback(query: CallbackQuery) {
 
     // dl:<id>:<filter>:<page> — запрос подтверждения удаления
     case "dl": {
+      if (await ownerOnly()) return;
       const [id, filter, page] = rest;
       const application = id
         ? await prisma.application.findUnique({ where: { id } })
@@ -388,6 +526,7 @@ export async function handleCallback(query: CallbackQuery) {
 
     // dy:<id>:<filter>:<page> — удаление подтверждено
     case "dy": {
+      if (await ownerOnly()) return;
       const [id, filter, page] = rest;
       if (!id) break;
       await prisma.application.deleteMany({ where: { id } });
@@ -398,6 +537,75 @@ export async function handleCallback(query: CallbackQuery) {
         await editMessage(chatId, messageId, "Заявка удалена.");
       }
       await answerCallback(query.id, "Заявка удалена");
+      return;
+    }
+
+    // ac — раздел «Доступ»
+    case "ac": {
+      if (await ownerOnly()) return;
+      await edit(chatId, messageId, await accessView());
+      break;
+    }
+
+    // iv — новое приглашение
+    case "iv": {
+      if (await ownerOnly()) return;
+      const link = await createInviteLink();
+      if (!link) {
+        await answerCallback(query.id, "Не задан TELEGRAM_BOT_USERNAME в .env");
+        return;
+      }
+      await sendMessage(
+        chatId,
+        `<b>Приглашение для менеджера</b>\n\nОтправьте эту ссылку человеку:\n${link}\n\nОна действует 24 часа и срабатывает один раз.`,
+      );
+      break;
+    }
+
+    // rv:<userId> — запрос подтверждения отзыва доступа
+    case "rv": {
+      if (await ownerOnly()) return;
+      const [userId] = rest;
+      const user = userId
+        ? await prisma.telegramUser.findUnique({ where: { id: userId } })
+        : null;
+      if (!user) {
+        await answerCallback(query.id, "Пользователь не найден");
+        return;
+      }
+      await editMessage(
+        chatId,
+        messageId,
+        `<b>Отозвать доступ?</b>\n\n${escapeHtml(user.name)} перестанет получать заявки и пользоваться ботом.`,
+        {
+          inline_keyboard: [
+            [
+              { text: "Да, отозвать", callback_data: `ry:${user.id}` },
+              { text: "Отмена", callback_data: "ac" },
+            ],
+          ],
+        },
+      );
+      break;
+    }
+
+    // ry:<userId> — отзыв подтверждён
+    case "ry": {
+      if (await ownerOnly()) return;
+      const [userId] = rest;
+      const user = userId
+        ? await prisma.telegramUser.findUnique({ where: { id: userId } })
+        : null;
+      if (user) {
+        await prisma.telegramUser.delete({ where: { id: user.id } });
+        await telegramCall("sendMessage", {
+          chat_id: user.chatId,
+          text: "Доступ к боту заявок отозван.",
+          reply_markup: { remove_keyboard: true },
+        });
+      }
+      await edit(chatId, messageId, await accessView());
+      await answerCallback(query.id, "Доступ отозван");
       return;
     }
   }

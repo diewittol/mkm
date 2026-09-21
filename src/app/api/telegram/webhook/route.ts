@@ -13,15 +13,15 @@ function secretMatches(received: string | null): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// POST /api/telegram/webhook — сообщения и нажатия кнопок из чата с ботом.
+// POST /api/telegram/webhook — сообщения и нажатия кнопок из личных чатов с ботом.
 // Telegram присылает сюда update, подписанный секретом из setWebhook.
+// Права (владелец / менеджер / нет доступа) проверяет сам бот по Telegram ID.
 export async function POST(request: Request) {
   if (!secretMatches(request.headers.get("x-telegram-bot-api-secret-token"))) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const update = await request.json().catch(() => null);
-  const allowedChat = process.env.TELEGRAM_CHAT_ID;
 
   // Telegram повторяет запрос, если не получил 200, поэтому на всё
   // лишнее и на любые внутренние ошибки тоже отвечаем ok.
@@ -29,15 +29,18 @@ export async function POST(request: Request) {
     const query = update?.callback_query;
     const message = update?.message;
 
-    // Принимаем только события из настроенного чата
-    if (query?.data && query.message) {
-      if (allowedChat && String(query.message.chat.id) === allowedChat) {
-        await handleCallback(query);
-      }
-    } else if (typeof message?.text === "string" && message.chat) {
-      if (allowedChat && String(message.chat.id) === allowedChat) {
-        await handleMessage(message.chat.id, message.text);
-      }
+    if (query?.data && query.from && query.message?.chat?.type === "private") {
+      await handleCallback(query);
+    } else if (
+      typeof message?.text === "string" &&
+      message.from &&
+      message.chat?.type === "private"
+    ) {
+      await handleMessage({
+        chatId: message.chat.id,
+        from: message.from,
+        text: message.text,
+      });
     }
   } catch (error) {
     console.error("Telegram webhook error:", error);

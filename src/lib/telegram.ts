@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/prisma";
 import type { ApplicationStatus } from "@/types/application";
 
 const TELEGRAM_TIMEOUT_MS = 8000;
@@ -62,7 +63,7 @@ export function buildApplicationText(
 export function buildKeyboard(
   app: ApplicationForTelegram,
   currentStatus?: string,
-  options: { card?: boolean; back?: KeyboardBack } = {},
+  options: { card?: boolean; back?: KeyboardBack; canDelete?: boolean } = {},
 ) {
   const rows: { text: string; url?: string; callback_data?: string }[][] = [];
 
@@ -96,8 +97,10 @@ export function buildKeyboard(
         callback_data: `ls:${options.back.filter}:${options.back.page}`,
       });
     }
-    actionRow.push({ text: "Удалить", callback_data: `dl:${app.id}${ctx}` });
-    rows.push(actionRow);
+    if (options.canDelete ?? true) {
+      actionRow.push({ text: "Удалить", callback_data: `dl:${app.id}${ctx}` });
+    }
+    if (actionRow.length) rows.push(actionRow);
   }
 
   return { inline_keyboard: rows };
@@ -166,8 +169,16 @@ export const answerCallback = (callbackQueryId: string, text?: string) =>
 // Уведомление о новой заявке. Ничего не бросает наружу: если Telegram
 // недоступен или не настроен, заявка всё равно уже сохранена в базе.
 export async function notifyNewApplication(app: ApplicationForTelegram) {
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!process.env.TELEGRAM_BOT_TOKEN || !chatId) return;
+  const owner = process.env.TELEGRAM_CHAT_ID;
+  if (!process.env.TELEGRAM_BOT_TOKEN || !owner) return;
 
-  await sendMessage(chatId, buildApplicationText(app), buildKeyboard(app));
+  // Владелец из .env + все, кому выдан доступ
+  const managers = await prisma.telegramUser
+    .findMany({ select: { chatId: true } })
+    .catch(() => []);
+  const recipients = [...new Set([owner, ...managers.map((m) => m.chatId)])];
+
+  const text = buildApplicationText(app);
+  const keyboard = buildKeyboard(app);
+  await Promise.all(recipients.map((id) => sendMessage(id, text, keyboard)));
 }

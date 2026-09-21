@@ -135,3 +135,20 @@ model ProjectImage {
 
   @@index([projectId])
 }
+// Люди с доступом к Telegram-боту (владелец задаётся в .env и здесь не хранится)
+model TelegramUser {
+  id        String   @id @default(cuid())
+  chatId    String   @unique // Telegram user id (в личном чате совпадает с chat id)
+  name      String
+  role      String   @default("manager")
+  createdAt DateTime @default(now())
+}
+
+// Разовые приглашения в бота
+model TelegramInvite {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
