@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,8 +14,18 @@ const loginSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>;
 
+const emptySubscribe = () => () => {};
+
 export default function LoginPage() {
   const router = useRouter();
+  // До гидратации JS форма отправилась бы обычным GET, и пароль попал бы
+  // в адресную строку и логи. Пока страница не «ожила», кнопка неактивна
+  // (и Enter в поле тоже ничего не отправляет).
+  const isHydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
   const [error, setError] = useState("");
 
   const {
@@ -55,6 +65,7 @@ export default function LoginPage() {
         </div>
 
         <form
+          method="post"
           onSubmit={handleSubmit(onSubmit)}
           className="space-y-5 rounded-2xl border border-border bg-white p-8"
           noValidate
@@ -90,7 +101,7 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || !isHydrated}
             className="w-full rounded-lg bg-primary px-6 py-3 font-medium text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Проверяем…" : "Войти"}
