@@ -16,6 +16,8 @@ interface ApplicationFromApi {
   status: ApplicationStatus;
   createdAt: string;
   updatedAt: string;
+  handledBy: string | null;
+  handledAt: string | null;
   product: { id: string; name: string; slug: string } | null;
 }
 
@@ -97,11 +99,16 @@ export default function AdminRequestsPage() {
 
     const updated = await response.json();
 
+    const changes = {
+      status: updated.status,
+      handledBy: updated.handledBy,
+      handledAt: updated.handledAt,
+    };
     setApplications((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: updated.status } : a)),
+      prev.map((a) => (a.id === id ? { ...a, ...changes } : a)),
     );
     setViewing((prev) =>
-      prev && prev.id === id ? { ...prev, status: updated.status } : prev,
+      prev && prev.id === id ? { ...prev, ...changes } : prev,
     );
   };
 
@@ -195,6 +202,11 @@ export default function AdminRequestsPage() {
                         />
                         {APPLICATION_STATUS_LABELS[app.status]}
                       </span>
+                      {app.handledBy && (
+                        <p className="mt-1 text-xs text-text/50">
+                          {app.handledBy}
+                        </p>
+                      )}
                     </td>
                     <td className="px-5 py-3 text-sm text-text/60">
                       {formatDate(app.createdAt)}
@@ -283,6 +295,18 @@ export default function AdminRequestsPage() {
                 {formatDate(viewing.createdAt)}
               </p>
             </div>
+
+            {viewing.handledBy && (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wider text-text/50">
+                  Статус изменил(а)
+                </p>
+                <p className="mt-1 text-sm text-text/70">
+                  {viewing.handledBy}
+                  {viewing.handledAt && `, ${formatDate(viewing.handledAt)}`}
+                </p>
+              </div>
+            )}
 
             <div className="border-t border-border pt-5">
               <p className="text-xs font-medium uppercase tracking-wider text-text/50">

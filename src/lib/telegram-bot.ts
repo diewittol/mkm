@@ -69,11 +69,18 @@ interface TelegramFrom {
   last_name?: string;
 }
 
-const displayName = (from: TelegramFrom) =>
-  from.username
-    ? `@${from.username}`
-    : [from.first_name, from.last_name].filter(Boolean).join(" ").trim() ||
-      "без имени";
+// В именах Telegram бывают невидимые символы — из-за них подпись «пустая»
+const INVISIBLE_CHARS = /[​-‏⁠﻿­]/g;
+
+const displayName = (from: TelegramFrom) => {
+  if (from.username) return `@${from.username}`;
+  const name = [from.first_name, from.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .replace(INVISIBLE_CHARS, "")
+    .trim();
+  return name || `id ${from.id}`;
+};
 
 // Владелец задан в .env (TELEGRAM_CHAT_ID), остальные — в таблице TelegramUser
 export async function getRole(userId: string): Promise<Role | null> {
@@ -108,14 +115,24 @@ interface ListItem {
   phone: string;
   status: string;
   createdAt: Date;
+  handledBy: string | null;
 }
 
+// Строка статуса с указанием, кто его выставил: «В работе — @user»
+const statusWithWho = (status: string, handledBy: string | null) =>
+  handledBy ? `${statusLabel(status)} — ${handledBy}` : statusLabel(status);
+
 function itemButton(item: ListItem, back: string, showStatus: boolean) {
-  const parts = [item.name, item.phone, ago(item.createdAt)];
-  if (showStatus) parts.push(statusLabel(item.status));
+  const parts = [item.name, item.phone];
+  if (showStatus) {
+    parts.push(statusWithWho(item.status, item.handledBy));
+  } else {
+    // В списке «Новые/В работе» статус и так известен — показываем, кто взял
+    parts.push(item.handledBy ?? ago(item.createdAt));
+  }
   return [
     {
-      text: parts.join(" · ").slice(0, 60),
+      text: parts.join(" · ").slice(0, 100),
       callback_data: `op:${item.id}:${back}`,
     },
   ];
@@ -183,7 +200,13 @@ async function cardView(
   return {
     text: buildApplicationText(app, {
       title: `Заявка от ${formatDate(application.createdAt)}`,
-      statusNote: note ?? `Статус: ${statusLabel(application.status)}`,
+      statusNote:
+        note ??
+        `Статус: ${statusWithWho(application.status, application.handledBy)}${
+          application.handledBy && application.handledAt
+            ? ` (${formatDate(application.handledAt)})`
+            : ""
+        }`,
     }),
     markup: buildKeyboard(app, application.status, {
       card: true,
@@ -442,7 +465,10 @@ export async function handleCallback(query: IncomingCallback) {
         await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
         return;
       }
-      await prisma.application.update({ where: { id }, data: { status } });
+      await prisma.application.update({
+        where: { id },
+        data: { status, handledBy: who, handledAt: new Date() },
+      });
 
       const note = `${statusLabel(status)} — ${who}`;
       if (filter !== undefined) {

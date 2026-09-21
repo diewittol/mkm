@@ -86,6 +86,10 @@ model Application {
 
   status String @default("new") // new | in_progress | done | rejected
 
+  // Кто и когда последним менял статус (имя из Telegram или «админка»)
+  handledBy String?
+  handledAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
