@@ -89,6 +89,13 @@ export function buildKeyboard(
     })),
   );
 
+  // Отмена случайного нажатия: вернуть заявку в «новые»
+  if (currentStatus && currentStatus !== "new") {
+    rows.push([
+      { text: "Вернуть в новые", callback_data: `st:${app.id}:new${ctx}` },
+    ]);
+  }
+
   if (options.card) {
     const actionRow: { text: string; callback_data: string }[] = [];
     if (options.back) {

@@ -458,19 +458,25 @@ export async function handleCallback(query: IncomingCallback) {
     // st:<id>:<status>[:<filter>:<page>] — смена статуса
     case "st": {
       const [id, status, filter, page] = rest;
-      if (!id || !status || !isButtonStatus(status)) break;
+      const isReset = status === "new";
+      if (!id || !status || !(isReset || isButtonStatus(status))) break;
 
       const existing = await prisma.application.findUnique({ where: { id } });
       if (!existing) {
         await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
         return;
       }
+      // «Вернуть в новые» снимает и отметку, кто взял заявку
       await prisma.application.update({
         where: { id },
-        data: { status, handledBy: who, handledAt: new Date() },
+        data: isReset
+          ? { status, handledBy: null, handledAt: null }
+          : { status, handledBy: who, handledAt: new Date() },
       });
 
-      const note = `${statusLabel(status)} — ${who}`;
+      const note = isReset
+        ? `Возвращена в новые — ${who}`
+        : `${statusLabel(status)} — ${who}`;
       if (filter !== undefined) {
         // Карточка из списка/поиска
         const view = await cardView(id, role, backFrom(filter, page), note);

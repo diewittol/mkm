@@ -26,11 +26,14 @@ export async function PATCH(
 
   const application = await prisma.application.update({
     where: { id },
-    data: {
-      status: body.status,
-      handledBy: "админка",
-      handledAt: new Date(),
-    },
+    data:
+      body.status === "new"
+        ? { status: "new", handledBy: null, handledAt: null }
+        : {
+            status: body.status,
+            handledBy: "админка",
+            handledAt: new Date(),
+          },
   });
 
   return NextResponse.json(application);
