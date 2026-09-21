@@ -3,6 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { createManualApplication } from "@/lib/manual-application";
 import { parsePhone } from "@/lib/phone";
 import { groupNotes } from "@/lib/note-groups";
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  generatePassword,
+  isValidNewPassword,
+  setAdminPassword,
+} from "@/lib/admin-password";
 import { addApplicationNote, deleteApplicationWithFiles, deleteNoteGroup } from "@/lib/order-notes";
 import { MAX_PHOTO_BYTES, readOrderFile, sniffAudio } from "@/lib/order-files";
 import { APPLICATION_STATUS_LABELS } from "@/types/application";
@@ -478,8 +485,37 @@ async function accessView(): Promise<View> {
     },
   ]);
   rows.push([{ text: "Пригласить менеджера", callback_data: "iv" }]);
+  rows.push([{ text: "Пароль админки", callback_data: "pw" }]);
 
   return { text: lines.join("\n"), markup: { inline_keyboard: rows } };
+}
+
+// Раздел «Пароль админки» (только владелец)
+const PASSWORD_TTL_MS = 5 * 60 * 1000;
+
+async function passwordView(): Promise<View> {
+  const credential = await prisma.adminCredential.findUnique({ where: { id: "singleton" } });
+  const state = credential
+    ? `Пароль задан через бота: ${formatDate(credential.updatedAt)}${
+        credential.changedBy ? ` (${escapeHtml(credential.changedBy)})` : ""
+      }.`
+    : "Сейчас действует пароль из настроек сервера.";
+
+  return {
+    text: [
+      "<b>Пароль админки</b>",
+      "",
+      state,
+      "Сам пароль бот не хранит и показать его не может. Если забыли: сгенерируйте новый и сохраните в менеджере паролей.",
+    ].join("\n"),
+    markup: {
+      inline_keyboard: [
+        [{ text: "Сгенерировать новый", callback_data: "pg" }],
+        [{ text: "Задать свой", callback_data: "ps" }],
+        [{ text: "Назад", callback_data: "ac" }],
+      ],
+    },
+  };
 }
 
 async function createInviteLink(): Promise<string | null> {
@@ -885,6 +921,26 @@ export async function handleMessage(msg: IncomingMessage) {
     const draft = await prisma.telegramDraft.findUnique({
       where: { chatId: userId },
     });
+    // Владелец вводит свой пароль админки
+    if (
+      role === "owner" &&
+      draft?.step === "password" &&
+      Date.now() - draft.updatedAt.getTime() < PASSWORD_TTL_MS
+    ) {
+      // Сообщение с паролем не должно оставаться в чате
+      await telegramCall("deleteMessage", { chat_id: chatId, message_id: msg.messageId });
+      const password = msg.text ?? "";
+      if (!isValidNewPassword(password)) {
+        return sendMessage(
+          chatId,
+          `Пароль должен быть от ${MIN_PASSWORD_LENGTH} до ${MAX_PASSWORD_LENGTH} символов. Отправьте другой или /cancel.`,
+        );
+      }
+      await setAdminPassword(password, displayName(from));
+      await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+      return sendMessage(chatId, "Пароль админки изменён. Ваше сообщение с паролем удалено из чата.");
+    }
+
     // Идёт диалог добавления: текст — это ответ на текущий вопрос
     if (
       draft &&
@@ -1378,6 +1434,83 @@ export async function handleCallback(query: IncomingCallback) {
         inline_keyboard: noteNavRows(id, backFrom(filter, page)),
       });
       break;
+    }
+
+    // pw — раздел «Пароль админки»
+    case "pw": {
+      if (await ownerOnly()) return;
+      await prisma.telegramDraft.deleteMany({
+        where: { chatId: String(query.from.id), step: "password" },
+      });
+      await edit(chatId, messageId, await passwordView());
+      break;
+    }
+
+    // pg — подтверждение генерации нового пароля
+    case "pg": {
+      if (await ownerOnly()) return;
+      await editMessage(
+        chatId,
+        messageId,
+        "<b>Сгенерировать новый пароль?</b>\n\nСтарый пароль перестанет работать. Те, кто уже вошёл в админку, останутся в системе.",
+        {
+          inline_keyboard: [
+            [
+              { text: "Да, сгенерировать", callback_data: "py" },
+              { text: "Отмена", callback_data: "pw" },
+            ],
+          ],
+        },
+      );
+      break;
+    }
+
+    // py — сгенерировать и сохранить новый пароль
+    case "py": {
+      if (await ownerOnly()) return;
+      const password = generatePassword();
+      await setAdminPassword(password, who);
+      await editMessage(
+        chatId,
+        messageId,
+        `<b>Новый пароль админки</b>\n\n<code>${password}</code>\n\nНажмите на пароль, чтобы скопировать. Сохраните его в менеджере паролей и нажмите «Скрыть», чтобы убрать сообщение из чата.`,
+        { inline_keyboard: [[{ text: "Скрыть сообщение", callback_data: "ph" }]] },
+      );
+      await answerCallback(query.id, "Пароль изменён");
+      return;
+    }
+
+    // ps — ввести свой пароль следующим сообщением
+    case "ps": {
+      if (await ownerOnly()) return;
+      const userId = String(query.from.id);
+      await prisma.telegramDraft.upsert({
+        where: { chatId: userId },
+        create: { chatId: userId, step: "password" },
+        update: {
+          step: "password",
+          name: null,
+          phone: null,
+          message: null,
+          applicationId: null,
+          noteBatch: null,
+        },
+      });
+      await editMessage(
+        chatId,
+        messageId,
+        `<b>Свой пароль</b>\n\nОтправьте новый пароль следующим сообщением (от ${MIN_PASSWORD_LENGTH} до ${MAX_PASSWORD_LENGTH} символов). Я сразу удалю это сообщение из чата.`,
+        { inline_keyboard: [[{ text: "Отмена", callback_data: "pw" }]] },
+      );
+      break;
+    }
+
+    // ph — убрать сообщение с паролем из чата
+    case "ph": {
+      if (await ownerOnly()) return;
+      await telegramCall("deleteMessage", { chat_id: chatId, message_id: messageId });
+      await answerCallback(query.id, "Сообщение удалено");
+      return;
     }
 
     // ac — раздел «Доступ»

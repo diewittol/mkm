@@ -15,12 +15,6 @@ export function isValidSession(value: string | undefined): boolean {
   return expected.length > 0 && value === expected;
 }
 
-// Проверка пароля
-export function checkPassword(password: string): boolean {
-  const expected = process.env.ADMIN_PASSWORD ?? "";
-  return expected.length > 0 && password === expected;
-}
-
 // Проверка авторизации в Route Handler'ах (API не защищены middleware)
 export async function isAuthenticated(): Promise<boolean> {
   const store = await cookies();

@@ -208,3 +208,12 @@ model ApplicationNote {
 
   @@index([applicationId])
 }
+
+// Пароль админки, заданный через бота (singleton). Хранится только хэш.
+// Если записи нет, работает ADMIN_PASSWORD из .env; если есть — только она.
+model AdminCredential {
+  id           String   @id @default("singleton")
+  passwordHash String
+  changedBy    String?
+  updatedAt    DateTime @updatedAt
+}
