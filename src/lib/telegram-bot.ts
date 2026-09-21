@@ -384,11 +384,30 @@ const backFrom = (filter?: string, page?: string): KeyboardBack | undefined =>
 
 const DRAFT_TTL_MS = 15 * 60 * 1000;
 
-const ADD_PROMPT =
-  "<b>Добавление заявки вручную</b>\n\nОтправьте одним сообщением имя, телефон и (по желанию) комментарий. Например:\n\nИван 89991234567 хочет кухню\n\nОтмена: любая кнопка меню или /cancel.";
+const CANCEL_ROW = [{ text: "Отмена", callback_data: "ad:x" }];
 
-const ADD_HINT =
-  "Пример: Иван 89991234567 хочет кухню\n(имя, телефон, затем комментарий)";
+const ADD_HINT = "Пример: /add Иван 89991234567 хочет кухню";
+
+// Шаги диалога: name -> phone -> message -> confirm
+const STEP_PROMPTS = {
+  name: {
+    text: "<b>Добавление заявки вручную</b>\n\nКак зовут клиента?",
+    markup: { inline_keyboard: [CANCEL_ROW] },
+  },
+  phone: {
+    text: "Телефон клиента (10–11 цифр):",
+    markup: { inline_keyboard: [CANCEL_ROW] },
+  },
+  message: {
+    text: "Комментарий: что нужно клиенту, откуда о нас узнал. Можно пропустить.",
+    markup: {
+      inline_keyboard: [
+        [{ text: "Пропустить", callback_data: "ad:s" }],
+        CANCEL_ROW,
+      ],
+    },
+  },
+} as const;
 
 type ParsedManual =
   | { name: string; phone: string; message: string | null }
@@ -435,25 +454,50 @@ export function parseManualText(text: string): ParsedManual {
   return { error: "Не нашёл телефон (нужно 10–11 цифр)." };
 }
 
+function confirmView(draft: {
+  name: string;
+  phone: string;
+  message: string | null;
+}): View {
+  const lines = [
+    "<b>Добавить заявку?</b>",
+    "",
+    `Имя: ${escapeHtml(draft.name)}`,
+    `Телефон: ${escapeHtml(draft.phone)}`,
+  ];
+  if (draft.message) lines.push(`Комментарий: ${escapeHtml(draft.message)}`);
+
+  return {
+    text: lines.join("\n"),
+    markup: {
+      inline_keyboard: [
+        [
+          { text: "Создать: в работе", callback_data: "ad:w" },
+          { text: "Создать: новая", callback_data: "ad:n" },
+        ],
+        CANCEL_ROW,
+      ],
+    },
+  };
+}
+
+// Диалог: кнопка «Добавить заявку» -> имя -> телефон -> комментарий -> подтверждение
 async function startAdd(chatId: number, userId: string) {
   await prisma.telegramDraft.upsert({
     where: { chatId: userId },
-    create: { chatId: userId, step: "await" },
-    update: { step: "await", name: null, phone: null, message: null },
+    create: { chatId: userId, step: "name" },
+    update: { step: "name", name: null, phone: null, message: null },
   });
-  return sendMessage(chatId, ADD_PROMPT);
+  return sendMessage(chatId, STEP_PROMPTS.name.text, STEP_PROMPTS.name.markup);
 }
 
+// Быстрый вариант одной строкой: /add Иван 89991234567 хочет кухню
 async function processAddText(chatId: number, userId: string, text: string) {
   const parsed = parseManualText(text);
   if ("error" in parsed) {
-    // Черновик остаётся в ожидании — можно сразу прислать исправленный текст
-    await prisma.telegramDraft.upsert({
-      where: { chatId: userId },
-      create: { chatId: userId, step: "await" },
-      update: { step: "await" },
-    });
-    return sendMessage(chatId, `${parsed.error}\n\n${ADD_HINT}`);
+    return sendMessage(chatId, `${parsed.error}
+
+${ADD_HINT}`);
   }
 
   await prisma.telegramDraft.upsert({
@@ -461,24 +505,75 @@ async function processAddText(chatId: number, userId: string, text: string) {
     create: { chatId: userId, step: "confirm", ...parsed },
     update: { step: "confirm", ...parsed },
   });
+  return send(chatId, confirmView(parsed));
+}
 
-  const lines = [
-    "<b>Добавить заявку?</b>",
-    "",
-    `Имя: ${escapeHtml(parsed.name)}`,
-    `Телефон: ${escapeHtml(parsed.phone)}`,
-  ];
-  if (parsed.message) lines.push(`Комментарий: ${escapeHtml(parsed.message)}`);
+// Телефон: российский (10–11 цифр) или международный с плюсом
+function parsePhoneInput(text: string): string | null {
+  const digits = text.replace(/D/g, "");
+  const russian = digits.length === 10 || (digits.length === 11 && /^[78]/.test(digits));
+  if (russian) return normalizePhone(text);
+  if (text.trim().startsWith("+") && digits.length >= 10 && digits.length <= 15) {
+    return text.trim();
+  }
+  return null;
+}
 
-  return sendMessage(chatId, lines.join("\n"), {
-    inline_keyboard: [
-      [
-        { text: "Создать: в работе", callback_data: "ad:w" },
-        { text: "Создать: новая", callback_data: "ad:n" },
-      ],
-      [{ text: "Отмена", callback_data: "ad:x" }],
-    ],
+interface DraftRow {
+  step: string;
+  name: string | null;
+  phone: string | null;
+}
+
+// Ответ на очередной вопрос диалога
+async function handleDraftAnswer(
+  chatId: number,
+  userId: string,
+  draft: DraftRow,
+  text: string,
+) {
+  if (draft.step === "name") {
+    if (text.length < 2 || text.length > 60) {
+      return sendMessage(chatId, "Имя должно быть от 2 до 60 символов. Напишите ещё раз:");
+    }
+    await prisma.telegramDraft.update({
+      where: { chatId: userId },
+      data: { step: "phone", name: text },
+    });
+    return sendMessage(chatId, STEP_PROMPTS.phone.text, STEP_PROMPTS.phone.markup);
+  }
+
+  if (draft.step === "phone") {
+    const phone = parsePhoneInput(text);
+    if (!phone) {
+      return sendMessage(
+        chatId,
+        "Не похоже на телефон: нужно 10–11 цифр, например 89991234567. Напишите ещё раз:",
+      );
+    }
+    await prisma.telegramDraft.update({
+      where: { chatId: userId },
+      data: { step: "message", phone },
+    });
+    return sendMessage(chatId, STEP_PROMPTS.message.text, STEP_PROMPTS.message.markup);
+  }
+
+  // step === "message"
+  if (text.length > 500) {
+    return sendMessage(chatId, "Слишком длинный комментарий (до 500 символов). Сократите:");
+  }
+  const updated = await prisma.telegramDraft.update({
+    where: { chatId: userId },
+    data: { step: "confirm", message: text },
   });
+  return send(
+    chatId,
+    confirmView({
+      name: updated.name ?? draft.name ?? "",
+      phone: updated.phone ?? draft.phone ?? "",
+      message: text,
+    }),
+  );
 }
 
 export interface IncomingMessage {
@@ -525,11 +620,13 @@ export async function handleMessage({ chatId, from, text }: IncomingMessage) {
     const draft = await prisma.telegramDraft.findUnique({
       where: { chatId: userId },
     });
+    // Идёт диалог добавления: текст — это ответ на текущий вопрос
     if (
-      draft?.step === "await" &&
+      draft &&
+      ["name", "phone", "message"].includes(draft.step) &&
       Date.now() - draft.updatedAt.getTime() < DRAFT_TTL_MS
     ) {
-      return processAddText(chatId, userId, trimmed);
+      return handleDraftAnswer(chatId, userId, draft, trimmed);
     }
   }
 
@@ -724,6 +821,21 @@ export async function handleCallback(query: IncomingCallback) {
       }
 
       const fresh = draft && Date.now() - draft.updatedAt.getTime() < DRAFT_TTL_MS;
+
+      // «Пропустить» комментарий -> сразу к подтверждению
+      if (action === "s" && draft && fresh && draft.step === "message" && draft.name && draft.phone) {
+        await prisma.telegramDraft.update({
+          where: { chatId: userId },
+          data: { step: "confirm", message: null },
+        });
+        await edit(
+          chatId,
+          messageId,
+          confirmView({ name: draft.name, phone: draft.phone, message: null }),
+        );
+        break;
+      }
+
       if (!draft || !fresh || draft.step !== "confirm" || !draft.name || !draft.phone) {
         await editMessage(
           chatId,
