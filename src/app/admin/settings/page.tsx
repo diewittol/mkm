@@ -132,12 +132,18 @@ export default function AdminSettingsPage() {
             />
           </div>
 
-          <Input
-            id="settings-address"
-            label="Адрес"
-            placeholder="г. Красноярск, ул. Примерная, 123"
-            {...register("address")}
-          />
+          <div>
+            <Input
+              id="settings-address"
+              label="Основной адрес (для политики конфиденциальности)"
+              placeholder="г. Красноярск, ул. Примерная, 123"
+              {...register("address")}
+            />
+            <p className="mt-1.5 text-xs text-text/50">
+              Адреса магазинов для страницы контактов, подвала и карты
+              добавляются в разделе «Адреса».
+            </p>
+          </div>
 
           <h2 className="pt-2 font-montserrat text-base font-semibold text-text">
             Мессенджеры

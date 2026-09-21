@@ -2,16 +2,36 @@ import { ChevronRight, Phone, Mail, MapPin, Send } from "lucide-react";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
 import { ContactForm } from "@/components/ui/ContactForm";
+import { LocationsMap } from "@/components/contacts/LocationsMap";
+import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
 
 export const metadata = {
   title: "Контакты — МКМ",
   description:
-    "Свяжитесь с нами: телефон, email, адрес мастерской. Оставьте заявку — ответим в течение рабочего дня.",
+    "Свяжитесь с нами: телефон, email, адреса магазинов. Оставьте заявку — ответим в течение рабочего дня.",
 };
 
 export default async function ContactsPage() {
   const settings = await getSettings();
+
+  // Адреса из админки; если их ещё нет — запасной адрес из настроек (без координат)
+  const stored = await prisma.location.findMany({ orderBy: { createdAt: "asc" } });
+  const locations =
+    stored.length > 0
+      ? stored
+      : settings?.address
+        ? [
+            {
+              id: "settings",
+              title: "Магазин",
+              address: settings.address,
+              hours: null,
+              lat: null,
+              lon: null,
+            },
+          ]
+        : [];
 
   const phoneClean = settings?.phone?.replace(/[^\d+]/g, "") ?? "";
   const whatsappClean = settings?.whatsapp?.replace(/[^\d+]/g, "") ?? "";
@@ -87,24 +107,24 @@ export default async function ContactsPage() {
               </div>
             )}
 
-            {settings?.address && (
-              <div className="flex gap-4">
+            {locations.map((location) => (
+              <div key={location.id} className="flex gap-4">
                 <div className="flex h-11 w-11 flex-none items-center justify-center rounded-lg bg-beige text-primary">
                   <MapPin size={20} strokeWidth={1.75} />
                 </div>
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wider text-text/50">
-                    Адрес магазина
+                    {locations.length > 1 ? location.title : "Адрес магазина"}
                   </p>
                   <p className="mt-1 font-montserrat text-lg font-semibold text-text">
-                    {settings.address}
+                    {location.address}
                   </p>
-                  <p className="mt-1 text-sm text-text/60">
-                    Приезжайте по предварительной договорённости
-                  </p>
+                  {location.hours && (
+                    <p className="mt-1 text-sm text-text/60">{location.hours}</p>
+                  )}
                 </div>
               </div>
-            )}
+            ))}
 
             {settings?.whatsapp && (
               <div className="flex gap-4">
@@ -134,18 +154,7 @@ export default async function ContactsPage() {
           </div>
 
           {/* Карта */}
-          {settings?.address && (
-            <div className="aspect-[16/9] w-full overflow-hidden rounded-2xl bg-beige">
-              <iframe
-                src={`https://yandex.ru/map-widget/v1/?text=${encodeURIComponent(settings.address)}&z=16`}
-                width="100%"
-                height="100%"
-                style={{ border: 0 }}
-                loading="lazy"
-                title="Карта проезда"
-              />
-            </div>
-          )}
+          {locations.length > 0 && <LocationsMap locations={locations} />}
         </div>
 
         {/* Правая колонка: форма */}

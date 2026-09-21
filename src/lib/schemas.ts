@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PHONE_ERROR, parsePhone } from "@/lib/phone";
+import { COORDINATES_ERROR, parseCoordinates } from "@/lib/coordinates";
 
 export const contactFormSchema = z.object({
   name: z
@@ -92,3 +93,28 @@ export const manualApplicationSchema = z.object({
 });
 
 export type ManualApplicationValues = z.infer<typeof manualApplicationSchema>;
+
+export const locationFormSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(2, "Введите название, например «Магазин на Верещагина»")
+    .max(80, "Слишком длинное название"),
+  address: z
+    .string()
+    .trim()
+    .min(5, "Введите адрес")
+    .max(200, "Слишком длинный адрес"),
+  hours: z.string().trim().max(80, "До 80 символов").optional(),
+  // «широта, долгота» как в Яндекс/Google Картах; пусто — карта найдёт по адресу
+  coordinates: z
+    .string()
+    .trim()
+    .optional()
+    .refine(
+      (value) => !value || parseCoordinates(value) !== null,
+      COORDINATES_ERROR,
+    ),
+});
+
+export type LocationFormValues = z.infer<typeof locationFormSchema>;

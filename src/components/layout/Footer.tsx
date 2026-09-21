@@ -12,13 +12,21 @@ const NAVIGATION = [
 ];
 
 export const Footer = async () => {
-  const [settings, categories] = await Promise.all([
+  const [settings, categories, locations] = await Promise.all([
     getSettings(),
     prisma.category.findMany({
       orderBy: { order: "asc" },
       take: 5,
     }),
+    prisma.location.findMany({ orderBy: { createdAt: "asc" } }),
   ]);
+
+  // Адреса из админки; если их ещё нет — адрес из настроек
+  const addresses = locations.length
+    ? locations.map((l) => ({ id: l.id, text: l.address }))
+    : settings?.address
+      ? [{ id: "settings", text: settings.address }]
+      : [];
 
   return (
     <footer className="border-t border-border bg-background">
@@ -102,9 +110,11 @@ export const Footer = async () => {
                   </a>
                 </li>
               )}
-              {settings?.address && (
-                <li className="text-sm text-text/70">{settings.address}</li>
-              )}
+              {addresses.map((a) => (
+                <li key={a.id} className="text-sm text-text/70">
+                  {a.text}
+                </li>
+              ))}
             </ul>
           </div>
         </div>

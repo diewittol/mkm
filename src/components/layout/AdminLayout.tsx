@@ -9,6 +9,7 @@ import {
   Folder,
   Briefcase,
   Mail,
+  MapPin,
   Settings,
   LogOut,
   ArrowLeft,
@@ -29,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/categories", label: "Категории", icon: Folder },
   { href: "/admin/projects", label: "Проекты", icon: Briefcase },
   { href: "/admin/requests", label: "Заявки", icon: Mail },
+  { href: "/admin/locations", label: "Адреса", icon: MapPin },
   { href: "/admin/settings", label: "Настройки", icon: Settings },
 ];
 
