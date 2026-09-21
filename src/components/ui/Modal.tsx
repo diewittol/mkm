@@ -58,8 +58,8 @@ export const Modal = ({ isOpen, onClose, title, children }: ModalProps) => {
       />
 
       {/* Окно */}
-      <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+      <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex flex-none items-center justify-between border-b border-border px-6 py-4">
           <h2 className="font-montserrat text-lg font-semibold text-text">
             {title}
           </h2>
@@ -73,7 +73,10 @@ export const Modal = ({ isOpen, onClose, title, children }: ModalProps) => {
           </button>
         </div>
 
-        <div className="px-6 py-6">{children}</div>
+        {/* Содержимое прокручивается внутри окна, шапка остаётся на месте */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-6">
+          {children}
+        </div>
       </div>
     </div>,
     document.body,
