@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { createManualApplication, normalizePhone } from "@/lib/manual-application";
+import { createManualApplication } from "@/lib/manual-application";
+import { parsePhone } from "@/lib/phone";
 import { APPLICATION_STATUS_LABELS } from "@/types/application";
 import {
   answerCallback,
@@ -445,11 +446,10 @@ export function parseManualText(text: string): ParsedManual {
     if (message.length > 500) {
       return { error: "Слишком длинный комментарий (до 500 символов)." };
     }
-    return {
-      name,
-      phone: normalizePhone(raw.slice(0, end)),
-      message: message || null,
-    };
+    const phone = parsePhone(raw.slice(0, end));
+    if (!phone) return { error: "Это не похоже на номер телефона." };
+
+    return { name, phone, message: message || null };
   }
   return { error: "Не нашёл телефон (нужно 10–11 цифр)." };
 }
@@ -508,17 +508,6 @@ ${ADD_HINT}`);
   return send(chatId, confirmView(parsed));
 }
 
-// Телефон: российский (10–11 цифр) или международный с плюсом
-function parsePhoneInput(text: string): string | null {
-  const digits = text.replace(/D/g, "");
-  const russian = digits.length === 10 || (digits.length === 11 && /^[78]/.test(digits));
-  if (russian) return normalizePhone(text);
-  if (text.trim().startsWith("+") && digits.length >= 10 && digits.length <= 15) {
-    return text.trim();
-  }
-  return null;
-}
-
 interface DraftRow {
   step: string;
   name: string | null;
@@ -544,7 +533,7 @@ async function handleDraftAnswer(
   }
 
   if (draft.step === "phone") {
-    const phone = parsePhoneInput(text);
+    const phone = parsePhone(text);
     if (!phone) {
       return sendMessage(
         chatId,

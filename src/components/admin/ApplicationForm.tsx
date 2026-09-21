@@ -3,6 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "@/components/ui/Input";
+import { parsePhone } from "@/lib/phone";
 import {
   manualApplicationSchema,
   type ManualApplicationValues,
@@ -16,6 +17,7 @@ interface ApplicationFormProps {
 export const ApplicationForm = ({ onSubmit, onCancel }: ApplicationFormProps) => {
   const {
     register,
+    setValue,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<ManualApplicationValues>({
@@ -39,7 +41,13 @@ export const ApplicationForm = ({ onSubmit, onCancel }: ApplicationFormProps) =>
         type="tel"
         placeholder="+7 (___) ___-__-__"
         error={errors.phone?.message}
-        {...register("phone")}
+        inputMode="tel"
+        {...register("phone", {
+          onBlur: (event) => {
+            const formatted = parsePhone(event.target.value);
+            if (formatted) setValue("phone", formatted, { shouldValidate: true });
+          },
+        })}
       />
 
       <div>

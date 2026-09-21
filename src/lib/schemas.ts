@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PHONE_ERROR, parsePhone } from "@/lib/phone";
 
 export const contactFormSchema = z.object({
   name: z
@@ -7,11 +8,9 @@ export const contactFormSchema = z.object({
     .max(60, "Слишком длинное имя"),
   phone: z
     .string()
-    .min(10, "Введите телефон")
-    .regex(
-      /^[\d\s()+-]+$/,
-      "Телефон может содержать только цифры, пробелы и символы + ( ) -",
-    ),
+    .trim()
+    .min(1, "Введите телефон")
+    .refine((value) => parsePhone(value) !== null, PHONE_ERROR),
   message: z
     .string()
     .max(500, "Сообщение слишком длинное")
@@ -86,11 +85,8 @@ export const manualApplicationSchema = z.object({
   phone: z
     .string()
     .trim()
-    .min(10, "Введите телефон")
-    .regex(
-      /^[\d\s()+-]+$/,
-      "Телефон может содержать только цифры, пробелы и символы + ( ) -",
-    ),
+    .min(1, "Введите телефон")
+    .refine((value) => parsePhone(value) !== null, PHONE_ERROR),
   message: z.string().max(500, "Комментарий слишком длинный").optional(),
   status: z.enum(["in_progress", "new"]),
 });

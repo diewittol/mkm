@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "./Input";
 import { contactFormSchema, type ContactFormValues } from "@/lib/schemas";
+import { parsePhone } from "@/lib/phone";
 
 interface ContactFormProps {
   onSuccess?: () => void;
@@ -17,6 +18,7 @@ export const ContactForm = ({ onSuccess, productName }: ContactFormProps) => {
 
   const {
     register,
+    setValue,
     handleSubmit,
     formState: { errors, isSubmitting },
     reset,
@@ -51,7 +53,8 @@ export const ContactForm = ({ onSuccess, productName }: ContactFormProps) => {
     });
 
     if (!response.ok) {
-      alert("Не удалось отправить заявку. Попробуйте ещё раз.");
+      const error = await response.json().catch(() => ({}));
+      alert(error.error ?? "Не удалось отправить заявку. Попробуйте ещё раз.");
       return;
     }
 
@@ -104,7 +107,15 @@ export const ContactForm = ({ onSuccess, productName }: ContactFormProps) => {
         type="tel"
         placeholder="+7 (___) ___-__-__"
         error={errors.phone?.message}
-        {...register("phone")}
+        inputMode="tel"
+        autoComplete="tel"
+        {...register("phone", {
+          // Человек вводит номер как хочет, а мы приводим к +7 (999) 123-45-67
+          onBlur: (event) => {
+            const formatted = parsePhone(event.target.value);
+            if (formatted) setValue("phone", formatted, { shouldValidate: true });
+          },
+        })}
       />
 
       <div className="w-full">

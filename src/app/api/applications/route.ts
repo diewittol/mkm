@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { isAuthenticated } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { notifyNewApplication } from "@/lib/telegram";
+import { PHONE_ERROR, parsePhone } from "@/lib/phone";
 
 export const runtime = "nodejs";
 
@@ -45,13 +46,25 @@ export async function POST(request: Request) {
     );
   }
 
-  const { name, phone, message, productName } = body;
+  // Лишнее обрезаем, а не отклоняем: заявку терять нельзя (и длинный текст
+  // не должен ломать уведомление в Telegram)
+  const name = String(body.name ?? "").trim().slice(0, 60);
+  const message = String(body.message ?? "").trim().slice(0, 500) || null;
+  const productName = body.productName
+    ? String(body.productName).slice(0, 200)
+    : null;
 
-  if (!name || !phone) {
+  if (!name) {
     return NextResponse.json(
-      { error: "Поля name и phone обязательны" },
+      { error: "Укажите имя" },
       { status: 400 },
     );
+  }
+
+  // Телефон проверяем и сохраняем в едином виде: +7 (999) 123-45-67
+  const phone = parsePhone(String(body.phone ?? ""));
+  if (!phone) {
+    return NextResponse.json({ error: PHONE_ERROR }, { status: 400 });
   }
 
   // Если пришло название товара — ищем productId
