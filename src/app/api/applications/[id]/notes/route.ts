@@ -39,6 +39,13 @@ export async function POST(request: Request, { params }: RouteContext) {
   const photoFile = form?.get("photo");
   const audioFile = form?.get("audio");
 
+  // Общий идентификатор загрузки: файлы из одного «Добавить в ленту» — одна заметка
+  const rawBatch = form?.get("batch");
+  const batchId =
+    typeof rawBatch === "string" && /^[A-Za-z0-9_-]{8,40}$/.test(rawBatch)
+      ? rawBatch
+      : null;
+
   let photo: Buffer | null = null;
   let audio: Buffer | null = null;
   for (const [file, label] of [
@@ -67,6 +74,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       text,
       photo,
       audio,
+      batchId,
     });
     return NextResponse.json(note, { status: 201 });
   } catch {

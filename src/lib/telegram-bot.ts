@@ -2,7 +2,8 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { createManualApplication } from "@/lib/manual-application";
 import { parsePhone } from "@/lib/phone";
-import { addApplicationNote, deleteApplicationWithFiles } from "@/lib/order-notes";
+import { groupNotes } from "@/lib/note-groups";
+import { addApplicationNote, deleteApplicationWithFiles, deleteNoteGroup } from "@/lib/order-notes";
 import { MAX_PHOTO_BYTES, readOrderFile, sniffAudio } from "@/lib/order-files";
 import { APPLICATION_STATUS_LABELS } from "@/types/application";
 import {
@@ -237,9 +238,53 @@ async function cardView(
 const formatDuration = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
-// Лента заметок и фото заявки
-const NOTES_SHOWN = 8;
+// Лента заметок заявки. Всё, что добавлено за один сеанс (текст, фото, голосовые),
+// показывается как одна заметка.
+const NOTES_SHOWN = 6;
 const NOTE_PREVIEW_CHARS = 300;
+const NOTES_DELETE_LIST = 10;
+
+const ctxOf = (back?: KeyboardBack) => (back ? `:${back.filter}:${back.page}` : ":s:0");
+
+interface NoteRow {
+  id: string;
+  batchId: string | null;
+  author: string;
+  text: string | null;
+  photo: string | null;
+  audio: string | null;
+  audioSeconds: number | null;
+  createdAt: Date;
+}
+
+// «Куда дальше»: кнопки под просмотром, после сохранения, после альбома и т.п.
+function noteNavRows(id: string, back: KeyboardBack | undefined, withNotes = true) {
+  const ctx = ctxOf(back);
+  const row: { text: string; callback_data: string }[] = [];
+  if (withNotes) row.push({ text: "К заметкам", callback_data: `nt:${id}${ctx}` });
+  row.push({ text: "К заказу", callback_data: `op:${id}${ctx}` });
+
+  const rows = [row];
+  if (back) {
+    rows.push([{ text: "К списку", callback_data: `ls:${back.filter}:${back.page}` }]);
+  }
+  return rows;
+}
+
+// Краткое содержимое заметки: тексты, число фото, голосовые
+function summarizeNotes(notes: NoteRow[]) {
+  const texts = notes.map((n) => n.text).filter((t): t is string => !!t);
+  const photos = notes.filter((n) => n.photo).length;
+  const voices = notes.filter((n) => n.audio);
+  const marks: string[] = [];
+  if (photos > 0) marks.push(`[фото: ${photos}]`);
+  for (const voice of voices) {
+    marks.push(
+      `[голосовое${voice.audioSeconds ? ` ${formatDuration(voice.audioSeconds)}` : ""}]`,
+    );
+  }
+  return { texts, marks };
+}
 
 async function notesView(id: string, back?: KeyboardBack): Promise<View | null> {
   const application = await prisma.application.findUnique({
@@ -248,64 +293,96 @@ async function notesView(id: string, back?: KeyboardBack): Promise<View | null> 
   });
   if (!application) return null;
 
-  const total = await prisma.applicationNote.count({ where: { applicationId: id } });
-  const photos = await prisma.applicationNote.count({
-    where: { applicationId: id, photo: { not: null } },
+  const all = await prisma.applicationNote.findMany({
+    where: { applicationId: id },
+    orderBy: { createdAt: "asc" },
   });
-  const voices = await prisma.applicationNote.count({
-    where: { applicationId: id, audio: { not: null } },
-  });
-  const recent = (
-    await prisma.applicationNote.findMany({
-      where: { applicationId: id },
-      orderBy: { createdAt: "desc" },
-      take: NOTES_SHOWN,
-    })
-  ).reverse();
+  const groups = groupNotes(all);
+  const shown = groups.slice(-NOTES_SHOWN);
+  const photos = all.filter((n) => n.photo).length;
+  const voices = all.filter((n) => n.audio).length;
 
   const lines = [
     `<b>Заметки: ${escapeHtml(application.name)}, ${escapeHtml(application.phone)}</b>`,
     "",
   ];
 
-  if (total === 0) {
-    lines.push("Пока пусто. Нажмите «Добавить» и присылайте размеры, пожелания и фото.");
+  if (groups.length === 0) {
+    lines.push("Пока пусто. Нажмите «Добавить заметку» и присылайте размеры, пожелания, фото и голосовые.");
   } else {
-    if (total > recent.length) {
-      lines.push(`Показаны последние ${recent.length} из ${total}. Вся лента: в админке.`, "");
+    if (groups.length > shown.length) {
+      lines.push(`Показаны последние ${shown.length} из ${groups.length}. Вся лента: в админке.`, "");
     }
-    for (const note of recent) {
-      const text = note.text
-        ? escapeHtml(
-            note.text.length > NOTE_PREVIEW_CHARS
-              ? `${note.text.slice(0, NOTE_PREVIEW_CHARS)}…`
-              : note.text,
-          )
-        : "";
-      const mark = note.audio
-        ? `[голосовое${note.audioSeconds ? ` ${formatDuration(note.audioSeconds)}` : ""}]`
-        : note.photo
-          ? "[фото]"
-          : "";
-      const body = [text, mark].filter(Boolean).join(" ");
-      lines.push(`<i>${formatDate(note.createdAt)} ${escapeHtml(note.author)}</i>
-${body}`, "");
+    for (const group of shown) {
+      const first = group.notes[0];
+      const { texts, marks } = summarizeNotes(group.notes);
+      const text = texts.join("\n");
+      const preview = escapeHtml(
+        text.length > NOTE_PREVIEW_CHARS ? `${text.slice(0, NOTE_PREVIEW_CHARS)}…` : text,
+      );
+      const body = [preview, marks.join(" ")].filter(Boolean).join("\n");
+      lines.push(`<i>${formatDate(first.createdAt)} ${escapeHtml(first.author)}</i>\n${body}`, "");
     }
   }
 
-  const ctx = back ? `:${back.filter}:${back.page}` : ":s:0";
+  const ctx = ctxOf(back);
   const rows: { text: string; callback_data: string }[][] = [
-    [{ text: "Добавить заметку или фото", callback_data: `na:${id}${ctx}` }],
+    [{ text: "Добавить заметку", callback_data: `na:${id}${ctx}` }],
   ];
   if (photos > 0) {
-    rows.push([{ text: `Показать фото (${photos})`, callback_data: `np:${id}` }]);
+    rows.push([{ text: `Показать фото (${photos})`, callback_data: `np:${id}${ctx}` }]);
   }
   if (voices > 0) {
-    rows.push([{ text: `Прослушать голосовые (${voices})`, callback_data: `nv:${id}` }]);
+    rows.push([{ text: `Прослушать голосовые (${voices})`, callback_data: `nv:${id}${ctx}` }]);
   }
-  rows.push([{ text: "К заявке", callback_data: `op:${id}${ctx}` }]);
+  if (groups.length > 0) {
+    rows.push([{ text: "Удалить заметку", callback_data: `nx:${id}${ctx}` }]);
+  }
+  rows.push(...noteNavRows(id, back, false));
 
   return { text: lines.join("\n").trim(), markup: { inline_keyboard: rows } };
+}
+
+// Записи одной заметки по ключу группы (B<batchId> или N<id записи>)
+async function findNoteGroup(key: string | undefined) {
+  const value = key?.slice(1);
+  if (!key || !value) return [];
+  if (key[0] === "B") {
+    return prisma.applicationNote.findMany({
+      where: { batchId: value },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+  if (key[0] === "N") {
+    return prisma.applicationNote.findMany({ where: { id: value } });
+  }
+  return [];
+}
+
+// Выбор заметки для удаления
+async function deleteListView(id: string, back?: KeyboardBack): Promise<View | null> {
+  const all = await prisma.applicationNote.findMany({
+    where: { applicationId: id },
+    orderBy: { createdAt: "asc" },
+  });
+  const groups = groupNotes(all).slice(-NOTES_DELETE_LIST).reverse();
+  const ctx = ctxOf(back);
+
+  if (groups.length === 0) return notesView(id, back);
+
+  const rows = groups.map((group) => {
+    const { texts, marks } = summarizeNotes(group.notes);
+    const label = [formatDate(group.notes[0].createdAt), texts[0]?.slice(0, 30), marks.join(" ")]
+      .filter(Boolean)
+      .join(" · ");
+    return [{ text: label.slice(0, 60), callback_data: `nq:${group.key}${ctx}` }];
+  });
+  rows.push([{ text: "Назад", callback_data: `nt:${id}${ctx}` }]);
+
+  return {
+    text: "<b>Какую заметку удалить?</b>\n\nПоказаны последние. Удаляется вся заметка целиком (текст, фото и голосовые).",
+    markup: { inline_keyboard: rows },
+  };
 }
 
 async function statsView(): Promise<View> {
@@ -686,6 +763,7 @@ async function saveNoteFromChat(
   msg: IncomingMessage,
   userId: string,
   applicationId: string,
+  batchId: string | null,
   text: string | undefined,
 ) {
   const { chatId, from } = msg;
@@ -725,6 +803,7 @@ async function saveNoteFromChat(
       photo,
       audio,
       audioSeconds: audio ? (msg.audioSeconds ?? null) : null,
+      batchId,
     });
   } catch {
     return sendMessage(
@@ -748,7 +827,7 @@ async function saveNoteFromChat(
 export async function handleMessage(msg: IncomingMessage) {
   const { chatId, from } = msg;
   const trimmed = (msg.text ?? "").trim();
-  const [head = "", arg] = trimmed.split(/s+/);
+  const [head = "", arg] = trimmed.split(/\s+/);
   const command = head.startsWith("/") ? head.split("@")[0].toLowerCase() : null;
 
   const role = await getRole(String(from.id));
@@ -775,7 +854,13 @@ export async function handleMessage(msg: IncomingMessage) {
     if (!msg.photoFileId && !msg.audioFileId) {
       return sendMessage(chatId, "Пока принимаю текст, фото и голосовые (видео и прочее — нет).");
     }
-    return saveNoteFromChat(msg, userId, noteDraft.applicationId, msg.caption?.trim());
+    return saveNoteFromChat(
+      msg,
+      userId,
+      noteDraft.applicationId,
+      noteDraft.noteBatch,
+      msg.caption?.trim(),
+    );
   }
 
   if (!trimmed) return;
@@ -814,7 +899,7 @@ export async function handleMessage(msg: IncomingMessage) {
       draft.applicationId &&
       Date.now() - draft.updatedAt.getTime() < NOTE_TTL_MS
     ) {
-      return saveNoteFromChat(msg, userId, draft.applicationId, trimmed);
+      return saveNoteFromChat(msg, userId, draft.applicationId, draft.noteBatch, trimmed);
     }
   }
 
@@ -1062,9 +1147,9 @@ export async function handleCallback(query: IncomingCallback) {
       break;
     }
 
-    // na:<id>:<filter>:<page> — включить режим «присылаю заметки и фото»
+    // na:<id>:<filter>:<page> — начать заметку: всё присланное до «Сохранить» станет одной заметкой
     case "na": {
-      const [id] = rest;
+      const [id, filter, page] = rest;
       const application = id
         ? await prisma.application.findUnique({ where: { id }, select: { name: true } })
         : null;
@@ -1073,33 +1158,157 @@ export async function handleCallback(query: IncomingCallback) {
         return;
       }
       const userId = String(query.from.id);
+      const noteBatch = randomBytes(12).toString("hex");
       await prisma.telegramDraft.upsert({
         where: { chatId: userId },
-        create: { chatId: userId, step: "note", applicationId: id },
-        update: { step: "note", applicationId: id, name: null, phone: null, message: null },
+        create: { chatId: userId, step: "note", applicationId: id, noteBatch },
+        update: {
+          step: "note",
+          applicationId: id,
+          noteBatch,
+          name: null,
+          phone: null,
+          message: null,
+        },
       });
+      const ctx = ctxOf(backFrom(filter, page));
       await sendMessage(
         chatId,
-        `<b>Заметки: ${escapeHtml(application.name)}</b>
+        `<b>Новая заметка: ${escapeHtml(application.name)}</b>
 
-Пришлите текст или фото: всё попадёт в ленту этого заказа (размеры, пожелания, замеры). Фото лучше отправлять «как файл» (скрепка, затем Файл): так они не теряют чёткость. Можно присылать сколько нужно.
+Присылайте текст, фото и голосовые. Всё, что пришлёте, соберётся в одну заметку. Фото лучше отправлять «как файл» (скрепка, затем Файл): так они не теряют чёткость.
 
-Когда закончите, нажмите «Готово».`,
-        { inline_keyboard: [[{ text: "Готово", callback_data: "nd" }]] },
+Когда закончите, нажмите «Сохранить». «Отмена» удалит всё, что вы прислали в эту заметку.`,
+        {
+          inline_keyboard: [
+            [
+              { text: "Сохранить", callback_data: `ns:${id}${ctx}` },
+              { text: "Отмена", callback_data: `nc:${id}${ctx}` },
+            ],
+          ],
+        },
       );
       break;
     }
 
-    // nd — выйти из режима заметок
+    // ns:<id>:<filter>:<page> (и старое nd) — сохранить заметку и выйти из режима заметок
+    case "ns":
     case "nd": {
-      await prisma.telegramDraft.deleteMany({ where: { chatId: String(query.from.id) } });
-      await editMessage(chatId, messageId, "Готово. Всё добавленное лежит в ленте заявки («Заметки и фото»).");
+      const [idArg, filter, page] = rest;
+      const userId = String(query.from.id);
+      const draft = await prisma.telegramDraft.findUnique({ where: { chatId: userId } });
+      const noteDraft = draft?.step === "note" ? draft : null;
+      const id = idArg || noteDraft?.applicationId || null;
+
+      const saved =
+        noteDraft?.noteBatch && noteDraft.applicationId === id
+          ? await prisma.applicationNote.findMany({ where: { batchId: noteDraft.noteBatch } })
+          : [];
+      if (noteDraft) await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+
+      let text: string;
+      if (saved.length > 0) {
+        const { texts, marks } = summarizeNotes(saved);
+        text = ["<b>Заметка сохранена</b>", texts.length ? `Текст: ${texts.length}` : "", marks.join(" ")]
+          .filter(Boolean)
+          .join("\n");
+      } else if (noteDraft) {
+        text = "Ничего не добавлено. Заметка не создана.";
+      } else {
+        text = "Заметка уже сохранена (или режим заметок закрыт).";
+      }
+
+      const rows = id ? noteNavRows(id, backFrom(filter, page)) : [];
+      await editMessage(chatId, messageId, text, { inline_keyboard: rows });
+      await answerCallback(query.id, saved.length > 0 ? "Сохранено" : undefined);
+      return;
+    }
+
+    // nc:<id>:<filter>:<page> — отменить заметку: удалить всё присланное за сеанс
+    case "nc": {
+      const [id, filter, page] = rest;
+      const userId = String(query.from.id);
+      const draft = await prisma.telegramDraft.findUnique({ where: { chatId: userId } });
+
+      let removed = false;
+      if (draft?.step === "note" && draft.applicationId === id && draft.noteBatch) {
+        removed = (await deleteNoteGroup(`B${draft.noteBatch}`)) !== null;
+      }
+      if (draft?.step === "note") {
+        await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+      }
+
+      const rows = id ? noteNavRows(id, backFrom(filter, page)) : [];
+      await editMessage(
+        chatId,
+        messageId,
+        removed ? "Отменено. Присланное в эту заметку удалено." : "Отменено. Ничего не сохранено.",
+        { inline_keyboard: rows },
+      );
+      await answerCallback(query.id);
+      return;
+    }
+
+    // nx:<id>:<filter>:<page> — выбрать заметку для удаления
+    case "nx": {
+      const [id, filter, page] = rest;
+      const view = id ? await deleteListView(id, backFrom(filter, page)) : null;
+      if (!view) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      await edit(chatId, messageId, view);
       break;
     }
 
-    // np:<id> — прислать фото заявки альбомом
+    // nq:<группа>:<filter>:<page> — подтверждение удаления заметки
+    case "nq": {
+      const [key, filter, page] = rest;
+      const notes = await findNoteGroup(key);
+      if (notes.length === 0) {
+        await answerCallback(query.id, "Заметка уже удалена");
+        return;
+      }
+      const id = notes[0].applicationId;
+      const ctx = ctxOf(backFrom(filter, page));
+      const { texts, marks } = summarizeNotes(notes);
+      const preview = escapeHtml(texts.join("\n").slice(0, NOTE_PREVIEW_CHARS));
+      await edit(chatId, messageId, {
+        text: [
+          "<b>Удалить эту заметку?</b>",
+          `<i>${formatDate(notes[0].createdAt)} ${escapeHtml(notes[0].author)}</i>`,
+          [preview, marks.join(" ")].filter(Boolean).join("\n"),
+          "Вернуть её будет нельзя.",
+        ].join("\n\n"),
+        markup: {
+          inline_keyboard: [
+            [
+              { text: "Да, удалить", callback_data: `nz:${key}${ctx}` },
+              { text: "Отмена", callback_data: `nx:${id}${ctx}` },
+            ],
+          ],
+        },
+      });
+      break;
+    }
+
+    // nz:<группа>:<filter>:<page> — удалить заметку
+    case "nz": {
+      const [key, filter, page] = rest;
+      const id = await deleteNoteGroup(key);
+      if (!id) {
+        await answerCallback(query.id, "Заметка уже удалена");
+        return;
+      }
+      const view = await notesView(id, backFrom(filter, page));
+      if (view) await edit(chatId, messageId, view);
+      await answerCallback(query.id, "Заметка удалена");
+      return;
+    }
+
+    // np:<id>:<filter>:<page> — прислать фото заявки альбомом
     case "np": {
-      const [id] = rest;
+      const [id, filter, page] = rest;
       const notes = id
         ? await prisma.applicationNote.findMany({
             where: { applicationId: id, photo: { not: null } },
@@ -1123,17 +1332,20 @@ export async function handleCallback(query: IncomingCallback) {
         )
       ).filter((item): item is { data: Buffer; caption: string } => item !== null);
 
-      if (files.length === 0) {
+      if (files.length === 0 || !id) {
         await answerCallback(query.id, "Фото не найдены");
         return;
       }
       await sendPhotoAlbum(chatId, files);
+      await sendMessage(chatId, "Что дальше?", {
+        inline_keyboard: noteNavRows(id, backFrom(filter, page)),
+      });
       break;
     }
 
-    // nv:<id> — прислать голосовые заявки (последние 5)
+    // nv:<id>:<filter>:<page> — прислать голосовые заявки (последние 5)
     case "nv": {
-      const [id] = rest;
+      const [id, filter, page] = rest;
       const voices = id
         ? await prisma.applicationNote.findMany({
             where: { applicationId: id, audio: { not: null } },
@@ -1158,10 +1370,13 @@ export async function handleCallback(query: IncomingCallback) {
         sent++;
       }
 
-      if (sent === 0) {
+      if (sent === 0 || !id) {
         await answerCallback(query.id, "Голосовые не найдены");
         return;
       }
+      await sendMessage(chatId, "Что дальше?", {
+        inline_keyboard: noteNavRows(id, backFrom(filter, page)),
+      });
       break;
     }
 

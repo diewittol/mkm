@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Trash2 } from "lucide-react";
+import { groupNotes } from "@/lib/note-groups";
 
 interface NoteFromApi {
   id: string;
@@ -11,6 +12,7 @@ interface NoteFromApi {
   photo: string | null;
   audio: string | null;
   audioSeconds: number | null;
+  batchId: string | null;
   createdAt: string;
 }
 
@@ -50,8 +52,9 @@ export const ApplicationNotes = ({
     onCountChange?.(next.length);
   };
 
-  const send = async (payload: { text?: string; file?: File }) => {
+  const send = async (payload: { text?: string; file?: File; batch: string }) => {
     const form = new FormData();
+    form.append("batch", payload.batch);
     if (payload.text) form.append("text", payload.text);
     if (payload.file) {
       // Аудио и фото идут в разные поля, сервер проверяет содержимое
@@ -74,16 +77,18 @@ export const ApplicationNotes = ({
     const trimmed = text.trim();
     if (!trimmed && files.length === 0) return;
 
+    // Всё, что добавлено за одно нажатие, склеивается в одну заметку
+    const batch = crypto.randomUUID().replace(/-/g, "");
     const added: NoteFromApi[] = [];
     try {
       if (files.length === 0) {
         setProgress("Сохраняем…");
-        added.push(await send({ text: trimmed }));
+        added.push(await send({ text: trimmed, batch }));
       } else {
         // Фото по одному (у сервера лимит на размер запроса); текст — к первому
         for (let i = 0; i < files.length; i++) {
           setProgress(`Загружаем файл ${i + 1} из ${files.length}…`);
-          added.push(await send({ file: files[i], text: i === 0 ? trimmed : undefined }));
+          added.push(await send({ file: files[i], text: i === 0 ? trimmed : undefined, batch }));
         }
       }
       setText("");
@@ -96,15 +101,16 @@ export const ApplicationNotes = ({
     }
   };
 
-  const handleDelete = async (note: NoteFromApi) => {
-    if (!confirm("Удалить эту запись?")) return;
+  const handleDelete = async (group: NoteFromApi[]) => {
+    if (!confirm("Удалить эту заметку целиком (текст, фото и голосовые)?")) return;
 
-    const response = await fetch(`${base}/${note.id}`, { method: "DELETE" });
-    if (!response.ok) {
-      alert("Не удалось удалить");
-      return;
+    const deleted = new Set<string>();
+    for (const note of group) {
+      const response = await fetch(`${base}/${note.id}`, { method: "DELETE" });
+      if (response.ok) deleted.add(note.id);
     }
-    updateNotes(notes.filter((n) => n.id !== note.id));
+    if (deleted.size < group.length) alert("Не всё удалось удалить");
+    if (deleted.size) updateNotes(notes.filter((n) => !deleted.has(n.id)));
   };
 
   return (
@@ -121,69 +127,84 @@ export const ApplicationNotes = ({
             Пока пусто. Добавьте размеры, пожелания клиента, фото замеров.
           </p>
         ) : (
-          notes.map((note) => (
-            <div key={note.id} className="rounded-xl border border-border bg-background/50 p-3">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-xs text-text/50">
-                  {formatDate(note.createdAt)} · {note.author}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(note)}
-                  aria-label="Удалить запись"
-                  className="flex h-6 w-6 flex-none items-center justify-center rounded text-text/40 transition hover:bg-red-50 hover:text-red-600"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-
-              {note.text && (
-                <p className="mt-1.5 whitespace-pre-wrap text-sm text-text">{note.text}</p>
-              )}
-
-              {note.audio && (
-                <div className="mt-2">
-                  <audio
-                    controls
-                    preload="none"
-                    src={`${base}/${note.id}/audio`}
-                    className="w-full max-w-xs"
-                  />
-                  <p className="mt-1 text-xs text-text/40">
-                    Голосовое
-                    {note.audioSeconds
-                      ? `, ${Math.floor(note.audioSeconds / 60)}:${String(note.audioSeconds % 60).padStart(2, "0")}`
-                      : ""}
-                    {" · "}
-                    <a
-                      href={`${base}/${note.id}/audio`}
-                      download
-                      className="underline hover:text-primary"
-                    >
-                      скачать
-                    </a>
+          groupNotes(notes).map((group) => {
+            const first = group.notes[0];
+            const photos = group.notes.filter((n) => n.photo);
+            return (
+              <div key={group.key} className="rounded-xl border border-border bg-background/50 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs text-text/50">
+                    {formatDate(first.createdAt)} · {first.author}
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(group.notes)}
+                    aria-label="Удалить заметку"
+                    className="flex h-6 w-6 flex-none items-center justify-center rounded text-text/40 transition hover:bg-red-50 hover:text-red-600"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-              )}
 
-              {note.photo && (
-                <a
-                  href={`${base}/${note.id}/photo`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="relative mt-2 block aspect-[4/3] w-full max-w-xs overflow-hidden rounded-lg bg-beige"
-                >
-                  <Image
-                    src={`${base}/${note.id}/photo`}
-                    alt="Фото заказа"
-                    fill
-                    sizes="320px"
-                    className="object-cover"
-                  />
-                </a>
-              )}
-            </div>
-          ))
+                {group.notes
+                  .filter((n) => n.text)
+                  .map((n) => (
+                    <p key={n.id} className="mt-1.5 whitespace-pre-wrap text-sm text-text">
+                      {n.text}
+                    </p>
+                  ))}
+
+                {group.notes
+                  .filter((n) => n.audio)
+                  .map((n) => (
+                    <div key={n.id} className="mt-2">
+                      <audio
+                        controls
+                        preload="none"
+                        src={`${base}/${n.id}/audio`}
+                        className="w-full max-w-xs"
+                      />
+                      <p className="mt-1 text-xs text-text/40">
+                        Голосовое
+                        {n.audioSeconds
+                          ? `, ${Math.floor(n.audioSeconds / 60)}:${String(n.audioSeconds % 60).padStart(2, "0")}`
+                          : ""}
+                        {" · "}
+                        <a
+                          href={`${base}/${n.id}/audio`}
+                          download
+                          className="underline hover:text-primary"
+                        >
+                          скачать
+                        </a>
+                      </p>
+                    </div>
+                  ))}
+
+                {photos.length > 0 && (
+                  <div className="mt-2 grid max-w-xs grid-cols-2 gap-2">
+                    {photos.map((n) => (
+                      <a
+                        key={n.id}
+                        href={`${base}/${n.id}/photo`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`relative block aspect-[4/3] overflow-hidden rounded-lg bg-beige ${photos.length === 1 ? "col-span-2" : ""}`}
+                      >
+                        <Image
+                          src={`${base}/${n.id}/photo`}
+                          alt="Фото заказа"
+                          fill
+                          sizes="320px"
+                          className="object-cover"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 

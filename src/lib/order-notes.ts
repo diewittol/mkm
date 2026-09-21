@@ -13,6 +13,8 @@ interface NewNote {
   // Голосовое / аудио (сохраняется как есть) и его длительность, если известна
   audio?: Buffer | null;
   audioSeconds?: number | null;
+  // Сеанс добавления: записи с одним batchId показываются как одна заметка
+  batchId?: string | null;
 }
 
 // Запись в ленту заявки: текст, фото или и то и другое.
@@ -33,6 +35,7 @@ export async function addApplicationNote(input: NewNote) {
         photo,
         audio,
         audioSeconds: audio ? (input.audioSeconds ?? null) : null,
+        batchId: input.batchId ?? null,
       },
     });
   } catch (error) {
@@ -53,6 +56,28 @@ export async function deleteApplicationNote(applicationId: string, noteId: strin
   if (note.photo) await deleteOrderFile(note.photo);
   if (note.audio) await deleteOrderFile(note.audio);
   return true;
+}
+
+// Удаление целой заметки (все записи сеанса) вместе с файлами.
+// key — B<batchId> для сеанса или N<id записи> для старой одиночной записи.
+// Возвращает id заявки, если что-то удалено.
+export async function deleteNoteGroup(key: string): Promise<string | null> {
+  const kind = key[0];
+  const value = key.slice(1);
+  if (!value || (kind !== "B" && kind !== "N")) return null;
+
+  const notes = await prisma.applicationNote.findMany({
+    where: kind === "B" ? { batchId: value } : { id: value },
+  });
+  if (notes.length === 0) return null;
+
+  await prisma.applicationNote.deleteMany({
+    where: { id: { in: notes.map((n) => n.id) } },
+  });
+  await Promise.all(
+    notes.flatMap((n) => [n.photo, n.audio]).map((f) => (f ? deleteOrderFile(f) : null)),
+  );
+  return notes[0].applicationId;
 }
 
 // Удаление заявки вместе с файлами её заметок (записи в БД удаляются каскадом,

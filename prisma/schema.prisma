@@ -172,6 +172,8 @@ model TelegramDraft {
   message   String?
   // Режим «заметки»: к какой заявке сейчас добавляются заметки и фото
   applicationId String?
+  // Идентификатор текущего сеанса заметок: всё присланное за сеанс — одна заметка
+  noteBatch     String?
   updatedAt DateTime @updatedAt
 }
 
@@ -197,6 +199,9 @@ model ApplicationNote {
   photo         String?  // имя файла в private-uploads/orders
   audio         String?  // голосовое (ogg/mp3/m4a), там же
   audioSeconds  Int?     // длительность, если известна
+  // Записи одного сеанса добавления (текст + фото + голосовые) показываются
+  // как одна заметка. У старых записей пусто — каждая сама по себе.
+  batchId       String?
   createdAt     DateTime @default(now())
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
