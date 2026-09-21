@@ -40,10 +40,22 @@ jobs:
             APP_DIR="${{ secrets.DEPLOY_PATH }}"
             chown -R mkm:mkm "$APP_DIR"
             cd "$APP_DIR"
-            sudo -u mkm yarn install --frozen-lockfile
+
+            # Диск маленький, а кэш yarn при установке разрастается до нескольких
+            # ГБ: чистим его всегда, даже если деплой упал на середине.
+            trap 'rm -rf "$APP_DIR/.cache/yarn"' EXIT
+
+            # Пакеты ставим только если изменился yarn.lock (иначе — лишние
+            # ГБ трафика и диска на каждый деплой). Метка лежит в node_modules,
+            # который rsync не трогает.
+            LOCK_MARK="node_modules/.deployed-yarn.lock"
+            if [ ! -d node_modules ] || ! cmp -s yarn.lock "$LOCK_MARK"; then
+              sudo -u mkm yarn install --frozen-lockfile
+              sudo -u mkm cp yarn.lock "$LOCK_MARK"
+            fi
+
             sudo -u mkm npx prisma generate
             sudo -u mkm npx prisma migrate deploy
             sudo -u mkm yarn build
-            sudo -u mkm yarn cache clean
             systemctl restart mkm
             systemctl --no-pager --lines=5 status mkm
