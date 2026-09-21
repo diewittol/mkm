@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { createManualApplication } from "@/lib/manual-application";
 import { parsePhone } from "@/lib/phone";
 import { groupNotes } from "@/lib/note-groups";
+import { formatRub, parsePrice } from "@/lib/money";
+import { monthlyStats, periodStats, type Totals } from "@/lib/order-stats";
 import {
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
@@ -63,6 +65,7 @@ const MENU = {
   search: "Поиск",
   access: "Доступ",
   add: "Добавить заявку",
+  money: "Суммы",
 } as const;
 
 const MENU_KEYS = new Set<string>(Object.values(MENU));
@@ -71,7 +74,10 @@ function menuKeyboard(role: Role) {
   const rows = [
     [{ text: MENU.new }, { text: MENU.work }],
     [{ text: MENU.all }, { text: MENU.stats }],
-    [{ text: MENU.search }, ...(role === "owner" ? [{ text: MENU.access }] : [])],
+    [
+      { text: MENU.search },
+      ...(role === "owner" ? [{ text: MENU.money }, { text: MENU.access }] : []),
+    ],
     [{ text: MENU.add }],
   ];
   return { keyboard: rows, resize_keyboard: true, is_persistent: true };
@@ -225,6 +231,7 @@ async function cardView(
       title: `Заявка от ${formatDate(application.createdAt)}${
         application.source === "manual" ? " (вручную)" : ""
       }`,
+      price: role === "owner" ? application.price : undefined,
       statusNote:
         note ??
         `Статус: ${statusWithWho(application.status, application.handledBy)}${
@@ -238,6 +245,7 @@ async function cardView(
       back,
       canDelete: role === "owner",
       notesCount: application._count.notes,
+      price: role === "owner" ? application.price : undefined,
     }),
   };
 }
@@ -433,6 +441,85 @@ async function statsView(): Promise<View> {
   };
 }
 
+// --- Суммы по заказам (только владелец) -------------------------------------
+
+const monthName = (year: number, month: number) =>
+  `${new Date(Date.UTC(year, month, 1)).toLocaleString("ru-RU", { month: "long", timeZone: "UTC" })} ${year}`;
+
+function totalsLines(totals: Totals): string[] {
+  if (totals.count === 0) return ["Заявок нет"];
+
+  const lines = [
+    `Заявок: ${totals.count}${
+      totals.priced < totals.count ? ` (без стоимости: ${totals.count - totals.priced})` : ""
+    }`,
+  ];
+  if (totals.priced > 0) {
+    const average = Math.round(totals.sum / totals.priced);
+    lines.push(`Сумма: <b>${formatRub(totals.sum)}</b>, средний чек ${formatRub(average)}`);
+    lines.push(`Выполнено: ${totals.doneCount} на ${formatRub(totals.doneSum)}`);
+  }
+  return lines;
+}
+
+async function moneyRows() {
+  return prisma.application.findMany({
+    where: { status: { not: "rejected" } },
+    select: { createdAt: true, status: true, price: true },
+  });
+}
+
+async function moneyView(): Promise<View> {
+  const now = new Date();
+  const stats = periodStats(await moneyRows(), now);
+  const mskNow = new Date(now.getTime() + MSK_OFFSET_MS);
+  const currentYear = mskNow.getUTCFullYear();
+  const currentMonth = mskNow.getUTCMonth();
+  const prev = new Date(Date.UTC(currentYear, currentMonth - 1, 1));
+
+  const block = (title: string, totals: Totals) => [`<b>${title}</b>`, ...totalsLines(totals), ""];
+
+  const lines = [
+    "<b>Стоимость заказов</b>",
+    "<i>По дате заявки, без отклонённых. «Выполнено»: статус «Обработана».</i>",
+    "",
+    ...block("Сегодня", stats.today),
+    ...block(`Этот месяц (${monthName(currentYear, currentMonth)})`, stats.month),
+    ...block(
+      `Прошлый месяц (${monthName(prev.getUTCFullYear(), prev.getUTCMonth())})`,
+      stats.prevMonth,
+    ),
+    ...block(`С начала года (${currentYear})`, stats.year),
+    ...block("За всё время", stats.all),
+  ];
+
+  return {
+    text: lines.join("\n").trim(),
+    markup: { inline_keyboard: [[{ text: "По месяцам", callback_data: "mm" }]] },
+  };
+}
+
+async function monthsView(): Promise<View> {
+  const months = monthlyStats(await moneyRows(), new Date(), 12).filter(
+    (m) => m.totals.count > 0,
+  );
+
+  const lines = ["<b>Суммы по месяцам</b>", "<i>Последние 12 месяцев, по дате заявки.</i>", ""];
+  if (months.length === 0) {
+    lines.push("Заявок нет.");
+  }
+  for (const { year, month, totals } of months) {
+    const sum = totals.priced > 0 ? `${formatRub(totals.sum)}` : "без стоимости";
+    const done = totals.priced > 0 ? `, выполнено ${formatRub(totals.doneSum)}` : "";
+    lines.push(`<b>${monthName(year, month)}</b>: ${totals.count} заявок, ${sum}${done}`);
+  }
+
+  return {
+    text: lines.join("\n"),
+    markup: { inline_keyboard: [[{ text: "Назад", callback_data: "fm" }]] },
+  };
+}
+
 async function searchView(query: string): Promise<View> {
   const q = query.trim().toLowerCase();
   let digits = q.replace(/\D/g, "");
@@ -492,6 +579,7 @@ async function accessView(): Promise<View> {
 
 // Раздел «Пароль админки» (только владелец)
 const PASSWORD_TTL_MS = 5 * 60 * 1000;
+const PRICE_TTL_MS = 10 * 60 * 1000;
 
 async function passwordView(): Promise<View> {
   const credential = await prisma.adminCredential.findUnique({ where: { id: "singleton" } });
@@ -921,6 +1009,32 @@ export async function handleMessage(msg: IncomingMessage) {
     const draft = await prisma.telegramDraft.findUnique({
       where: { chatId: userId },
     });
+    // Владелец вводит стоимость заказа
+    if (
+      role === "owner" &&
+      draft?.step === "price" &&
+      draft.applicationId &&
+      Date.now() - draft.updatedAt.getTime() < PRICE_TTL_MS
+    ) {
+      const price = parsePrice(trimmed);
+      if (price === undefined) {
+        return sendMessage(
+          chatId,
+          "Не понял сумму. Отправьте число в рублях, например 120000. «0» убирает стоимость, /cancel отменяет.",
+        );
+      }
+      const updated = await prisma.application.updateMany({
+        where: { id: draft.applicationId },
+        data: { price: price || null },
+      });
+      await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+      if (updated.count === 0) return sendMessage(chatId, "Заявка не найдена (возможно, удалена).");
+
+      const view = await cardView(draft.applicationId, role);
+      if (view) await send(chatId, view);
+      return;
+    }
+
     // Владелец вводит свой пароль админки
     if (
       role === "owner" &&
@@ -974,6 +1088,10 @@ export async function handleMessage(msg: IncomingMessage) {
 
   if (role === "owner" && (key === MENU.access || key === "/access")) {
     return send(chatId, await accessView());
+  }
+
+  if (role === "owner" && (key === MENU.money || key === "/money")) {
+    return send(chatId, await moneyView());
   }
 
   if (key === MENU.search || key === "/search") {
@@ -1511,6 +1629,74 @@ export async function handleCallback(query: IncomingCallback) {
       await telegramCall("deleteMessage", { chat_id: chatId, message_id: messageId });
       await answerCallback(query.id, "Сообщение удалено");
       return;
+    }
+
+    // fm — суммы по заказам
+    case "fm": {
+      if (await ownerOnly()) return;
+      await edit(chatId, messageId, await moneyView());
+      break;
+    }
+
+    // mm — суммы по месяцам
+    case "mm": {
+      if (await ownerOnly()) return;
+      await edit(chatId, messageId, await monthsView());
+      break;
+    }
+
+    // pr:<id>:<filter>:<page> — ввести стоимость заказа следующим сообщением
+    case "pr": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      const application = id
+        ? await prisma.application.findUnique({
+            where: { id },
+            select: { name: true, price: true },
+          })
+        : null;
+      if (!id || !application) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      const userId = String(query.from.id);
+      await prisma.telegramDraft.upsert({
+        where: { chatId: userId },
+        create: { chatId: userId, step: "price", applicationId: id },
+        update: {
+          step: "price",
+          applicationId: id,
+          noteBatch: null,
+          name: null,
+          phone: null,
+          message: null,
+        },
+      });
+      await sendMessage(
+        chatId,
+        `<b>Стоимость: ${escapeHtml(application.name)}</b>\n\n${
+          application.price ? `Сейчас: ${formatRub(application.price)}.\n\n` : ""
+        }Отправьте сумму в рублях, например 120000 или 120 000. Чтобы убрать стоимость, отправьте «0».`,
+        {
+          inline_keyboard: [
+            [{ text: "Отмена", callback_data: `px:${id}${ctxOf(backFrom(filter, page))}` }],
+          ],
+        },
+      );
+      break;
+    }
+
+    // px:<id>:<filter>:<page> — отмена ввода стоимости, назад к карточке
+    case "px": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      await prisma.telegramDraft.deleteMany({
+        where: { chatId: String(query.from.id), step: "price" },
+      });
+      const view = id ? await cardView(id, role, backFrom(filter, page)) : null;
+      if (view) await edit(chatId, messageId, view);
+      else await editMessage(chatId, messageId, "Отменено.");
+      break;
     }
 
     // ac — раздел «Доступ»

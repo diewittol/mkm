@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatRub } from "@/lib/money";
 import type { ApplicationStatus } from "@/types/application";
 
 const TELEGRAM_TIMEOUT_MS = 8000;
@@ -42,7 +43,7 @@ function toWhatsappNumber(phone: string): string | null {
 
 export function buildApplicationText(
   app: ApplicationForTelegram,
-  options: { title?: string; statusNote?: string } = {},
+  options: { title?: string; statusNote?: string; price?: number | null } = {},
 ): string {
   const lines = [
     `<b>${escapeHtml(options.title ?? "Новая заявка с сайта")}</b>`,
@@ -52,6 +53,7 @@ export function buildApplicationText(
   ];
   if (app.productName) lines.push(`Изделие: ${escapeHtml(app.productName)}`);
   if (app.message) lines.push("", escapeHtml(app.message));
+  if (options.price) lines.push("", `Стоимость: <b>${formatRub(options.price)}</b>`);
   if (options.statusNote) {
     lines.push("", `<b>${escapeHtml(options.statusNote)}</b>`);
   }
@@ -68,6 +70,8 @@ export function buildKeyboard(
     back?: KeyboardBack;
     canDelete?: boolean;
     notesCount?: number;
+    // Кнопка стоимости (только владельцу): undefined — не показывать, null — стоимость не задана
+    price?: number | null;
   } = {},
 ) {
   const rows: { text: string; url?: string; callback_data?: string }[][] = [];
@@ -110,6 +114,15 @@ export function buildKeyboard(
         callback_data: `nt:${app.id}${ctx}`,
       },
     ]);
+
+    if (options.price !== undefined) {
+      rows.push([
+        {
+          text: options.price ? `Стоимость: ${formatRub(options.price)}` : "Указать стоимость",
+          callback_data: `pr:${app.id}${ctx}`,
+        },
+      ]);
+    }
 
     const actionRow: { text: string; callback_data: string }[] = [];
     if (options.back) {

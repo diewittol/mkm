@@ -93,6 +93,9 @@ model Application {
   // Откуда заявка: site — форма на сайте, manual — добавлена вручную (сарафан и т.п.)
   source String @default("site")
 
+  // Стоимость заказа в рублях (целое число); вписывает админ, клиенту не показывается
+  price Int?
+
   notes ApplicationNote[]
 
   createdAt DateTime @default(now())

@@ -5,6 +5,8 @@ import { Eye, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { ApplicationForm } from "@/components/admin/ApplicationForm";
 import { ApplicationNotes } from "@/components/admin/ApplicationNotes";
+import { ApplicationPrice } from "@/components/admin/ApplicationPrice";
+import { formatRub } from "@/lib/money";
 import type { ManualApplicationValues } from "@/lib/schemas";
 import {
   APPLICATION_STATUS_LABELS,
@@ -22,6 +24,7 @@ interface ApplicationFromApi {
   handledBy: string | null;
   handledAt: string | null;
   source: string;
+  price: number | null;
   _count?: { notes: number };
   product: { id: string; name: string; slug: string } | null;
 }
@@ -180,13 +183,14 @@ export default function AdminRequestsPage() {
       {/* Таблица */}
       <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-white">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
+          <table className="w-full min-w-[820px]">
             <thead className="border-b border-border bg-background/50">
               <tr className="text-left text-xs font-medium uppercase tracking-wider text-text/50">
                 <th className="px-5 py-3">Имя</th>
                 <th className="px-5 py-3">Телефон</th>
                 <th className="px-5 py-3">Товар / тема</th>
                 <th className="px-5 py-3">Статус</th>
+                <th className="px-5 py-3">Стоимость</th>
                 <th className="px-5 py-3">Дата</th>
                 <th className="px-5 py-3 text-right">Действия</th>
               </tr>
@@ -195,7 +199,7 @@ export default function AdminRequestsPage() {
               {isLoading ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-5 py-16 text-center text-sm text-text/60"
                   >
                     Загрузка…
@@ -204,7 +208,7 @@ export default function AdminRequestsPage() {
               ) : filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-5 py-16 text-center text-sm text-text/60"
                   >
                     Заявок нет
@@ -251,6 +255,9 @@ export default function AdminRequestsPage() {
                           {app.handledBy}
                         </p>
                       )}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3 text-sm text-text/70">
+                      {app.price ? formatRub(app.price) : "—"}
                     </td>
                     <td className="px-5 py-3 text-sm text-text/60">
                       {formatDate(app.createdAt)}
@@ -371,6 +378,18 @@ export default function AdminRequestsPage() {
                 const patchCount = (a: ApplicationFromApi) =>
                   a.id === viewing.id ? { ...a, _count: { notes: count } } : a;
                 setApplications((prev) => prev.map(patchCount));
+              }}
+            />
+
+            <ApplicationPrice
+              key={viewing.id}
+              applicationId={viewing.id}
+              price={viewing.price}
+              onSaved={(price) => {
+                setApplications((prev) =>
+                  prev.map((a) => (a.id === viewing.id ? { ...a, price } : a)),
+                );
+                setViewing((prev) => (prev && prev.id === viewing.id ? { ...prev, price } : prev));
               }}
             />
 
