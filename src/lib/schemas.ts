@@ -76,3 +76,23 @@ export const projectFormSchema = z.object({
 });
 
 export type ProjectFormValues = z.infer<typeof projectFormSchema>;
+
+export const manualApplicationSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Введите имя (минимум 2 символа)")
+    .max(60, "Слишком длинное имя"),
+  phone: z
+    .string()
+    .trim()
+    .min(10, "Введите телефон")
+    .regex(
+      /^[\d\s()+-]+$/,
+      "Телефон может содержать только цифры, пробелы и символы + ( ) -",
+    ),
+  message: z.string().max(500, "Комментарий слишком длинный").optional(),
+  status: z.enum(["in_progress", "new"]),
+});
+
+export type ManualApplicationValues = z.infer<typeof manualApplicationSchema>;

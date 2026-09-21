@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { createManualApplication, normalizePhone } from "@/lib/manual-application";
 import { APPLICATION_STATUS_LABELS } from "@/types/application";
 import {
   answerCallback,
@@ -46,13 +47,17 @@ const MENU = {
   stats: "Сводка",
   search: "Поиск",
   access: "Доступ",
+  add: "Добавить заявку",
 } as const;
+
+const MENU_KEYS = new Set<string>(Object.values(MENU));
 
 function menuKeyboard(role: Role) {
   const rows = [
     [{ text: MENU.new }, { text: MENU.work }],
     [{ text: MENU.all }, { text: MENU.stats }],
     [{ text: MENU.search }, ...(role === "owner" ? [{ text: MENU.access }] : [])],
+    [{ text: MENU.add }],
   ];
   return { keyboard: rows, resize_keyboard: true, is_persistent: true };
 }
@@ -199,7 +204,9 @@ async function cardView(
 
   return {
     text: buildApplicationText(app, {
-      title: `Заявка от ${formatDate(application.createdAt)}`,
+      title: `Заявка от ${formatDate(application.createdAt)}${
+        application.source === "manual" ? " (вручную)" : ""
+      }`,
       statusNote:
         note ??
         `Статус: ${statusWithWho(application.status, application.handledBy)}${
@@ -373,6 +380,107 @@ const edit = (chatId: number, messageId: number, view: View) =>
 const backFrom = (filter?: string, page?: string): KeyboardBack | undefined =>
   isFilter(filter) ? { filter, page: Number(page) || 0 } : undefined;
 
+// --- Добавление заявки вручную -------------------------------------------
+
+const DRAFT_TTL_MS = 15 * 60 * 1000;
+
+const ADD_PROMPT =
+  "<b>Добавление заявки вручную</b>\n\nОтправьте одним сообщением имя, телефон и (по желанию) комментарий. Например:\n\nИван 89991234567 хочет кухню\n\nОтмена: любая кнопка меню или /cancel.";
+
+const ADD_HINT =
+  "Пример: Иван 89991234567 хочет кухню\n(имя, телефон, затем комментарий)";
+
+type ParsedManual =
+  | { name: string; phone: string; message: string | null }
+  | { error: string };
+
+// «Иван 89991234567 хочет кухню» -> имя до телефона, комментарий после
+export function parseManualText(text: string): ParsedManual {
+  for (const match of text.matchAll(/\+?\d[\d\s().-]{8,}/g)) {
+    const raw = match[0];
+    const digits = raw.replace(/\D/g, "");
+    // Российский номер: 11 цифр (7/8/+7), иначе 10; цифры комментария не берём
+    const needed = /^\+?[78]/.test(raw) && digits.length >= 11 ? 11 : 10;
+    if (digits.length < needed) continue;
+
+    let seen = 0;
+    let end = 0;
+    for (let i = 0; i < raw.length; i++) {
+      if (/\d/.test(raw[i]) && ++seen === needed) {
+        end = i + 1;
+        break;
+      }
+    }
+
+    const start = match.index ?? 0;
+    const name = text.slice(0, start).replace(/[\s,;:\-–—]+$/, "").trim();
+    const message = text
+      .slice(start + end)
+      .replace(/^[\s,;:\-–—]+/, "")
+      .trim();
+
+    if (name.length < 2) {
+      return { error: "Не нашёл имя: напишите его перед телефоном." };
+    }
+    if (name.length > 60) return { error: "Слишком длинное имя (до 60 символов)." };
+    if (message.length > 500) {
+      return { error: "Слишком длинный комментарий (до 500 символов)." };
+    }
+    return {
+      name,
+      phone: normalizePhone(raw.slice(0, end)),
+      message: message || null,
+    };
+  }
+  return { error: "Не нашёл телефон (нужно 10–11 цифр)." };
+}
+
+async function startAdd(chatId: number, userId: string) {
+  await prisma.telegramDraft.upsert({
+    where: { chatId: userId },
+    create: { chatId: userId, step: "await" },
+    update: { step: "await", name: null, phone: null, message: null },
+  });
+  return sendMessage(chatId, ADD_PROMPT);
+}
+
+async function processAddText(chatId: number, userId: string, text: string) {
+  const parsed = parseManualText(text);
+  if ("error" in parsed) {
+    // Черновик остаётся в ожидании — можно сразу прислать исправленный текст
+    await prisma.telegramDraft.upsert({
+      where: { chatId: userId },
+      create: { chatId: userId, step: "await" },
+      update: { step: "await" },
+    });
+    return sendMessage(chatId, `${parsed.error}\n\n${ADD_HINT}`);
+  }
+
+  await prisma.telegramDraft.upsert({
+    where: { chatId: userId },
+    create: { chatId: userId, step: "confirm", ...parsed },
+    update: { step: "confirm", ...parsed },
+  });
+
+  const lines = [
+    "<b>Добавить заявку?</b>",
+    "",
+    `Имя: ${escapeHtml(parsed.name)}`,
+    `Телефон: ${escapeHtml(parsed.phone)}`,
+  ];
+  if (parsed.message) lines.push(`Комментарий: ${escapeHtml(parsed.message)}`);
+
+  return sendMessage(chatId, lines.join("\n"), {
+    inline_keyboard: [
+      [
+        { text: "Создать: в работе", callback_data: "ad:w" },
+        { text: "Создать: новая", callback_data: "ad:n" },
+      ],
+      [{ text: "Отмена", callback_data: "ad:x" }],
+    ],
+  });
+}
+
 export interface IncomingMessage {
   chatId: number;
   from: TelegramFrom;
@@ -395,6 +503,35 @@ export async function handleMessage({ chatId, from, text }: IncomingMessage) {
   }
 
   const key = command ?? trimmed;
+  const userId = String(from.id);
+
+  // Ручное добавление заявки: старт, отмена и приём текста
+  if (key === MENU.add || command === "/add") {
+    const inline = command === "/add" ? trimmed.slice(head.length).trim() : "";
+    return inline
+      ? processAddText(chatId, userId, inline)
+      : startAdd(chatId, userId);
+  }
+
+  if (command === "/cancel") {
+    await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+    return sendMessage(chatId, "Добавление заявки отменено.");
+  }
+
+  if (MENU_KEYS.has(key) || command) {
+    // Любая кнопка меню или команда отменяет незаконченный черновик
+    await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+  } else {
+    const draft = await prisma.telegramDraft.findUnique({
+      where: { chatId: userId },
+    });
+    if (
+      draft?.step === "await" &&
+      Date.now() - draft.updatedAt.getTime() < DRAFT_TTL_MS
+    ) {
+      return processAddText(chatId, userId, trimmed);
+    }
+  }
 
   if (command === "/start" || command === "/menu") {
     return sendMessage(
@@ -569,6 +706,47 @@ export async function handleCallback(query: IncomingCallback) {
         await editMessage(chatId, messageId, "Заявка удалена.");
       }
       await answerCallback(query.id, "Заявка удалена");
+      return;
+    }
+
+    // ad:<w|n|x> — подтверждение (или отмена) ручной заявки из черновика
+    case "ad": {
+      const [action] = rest;
+      const userId = String(query.from.id);
+      const draft = await prisma.telegramDraft.findUnique({
+        where: { chatId: userId },
+      });
+
+      if (action === "x") {
+        await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+        await editMessage(chatId, messageId, "Добавление заявки отменено.");
+        break;
+      }
+
+      const fresh = draft && Date.now() - draft.updatedAt.getTime() < DRAFT_TTL_MS;
+      if (!draft || !fresh || draft.step !== "confirm" || !draft.name || !draft.phone) {
+        await editMessage(
+          chatId,
+          messageId,
+          "Черновик устарел. Нажмите «Добавить заявку» и отправьте данные ещё раз.",
+        );
+        await answerCallback(query.id, "Черновик устарел");
+        return;
+      }
+
+      const application = await createManualApplication({
+        name: draft.name,
+        phone: draft.phone,
+        message: draft.message,
+        status: action === "w" ? "in_progress" : "new",
+        createdBy: who,
+        excludeChatId: userId,
+      });
+      await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+
+      const view = await cardView(application.id, role);
+      if (view) await edit(chatId, messageId, view);
+      await answerCallback(query.id, "Заявка создана");
       return;
     }
 

@@ -175,7 +175,15 @@ export const answerCallback = (callbackQueryId: string, text?: string) =>
 
 // Уведомление о новой заявке. Ничего не бросает наружу: если Telegram
 // недоступен или не настроен, заявка всё равно уже сохранена в базе.
-export async function notifyNewApplication(app: ApplicationForTelegram) {
+export async function notifyNewApplication(
+  app: ApplicationForTelegram,
+  options: {
+    title?: string;
+    statusNote?: string;
+    status?: string;
+    excludeChatId?: string;
+  } = {},
+) {
   const owner = process.env.TELEGRAM_CHAT_ID;
   if (!process.env.TELEGRAM_BOT_TOKEN || !owner) return;
 
@@ -183,9 +191,14 @@ export async function notifyNewApplication(app: ApplicationForTelegram) {
   const managers = await prisma.telegramUser
     .findMany({ select: { chatId: true } })
     .catch(() => []);
-  const recipients = [...new Set([owner, ...managers.map((m) => m.chatId)])];
+  const recipients = [
+    ...new Set([owner, ...managers.map((m) => m.chatId)]),
+  ].filter((id) => id !== options.excludeChatId);
 
-  const text = buildApplicationText(app);
-  const keyboard = buildKeyboard(app);
+  const text = buildApplicationText(app, {
+    title: options.title,
+    statusNote: options.statusNote,
+  });
+  const keyboard = buildKeyboard(app, options.status);
   await Promise.all(recipients.map((id) => sendMessage(id, text, keyboard)));
 }

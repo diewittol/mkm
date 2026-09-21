@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eye, Trash2 } from "lucide-react";
+import { Eye, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
+import { ApplicationForm } from "@/components/admin/ApplicationForm";
+import type { ManualApplicationValues } from "@/lib/schemas";
 import {
   APPLICATION_STATUS_LABELS,
   type ApplicationStatus,
@@ -18,6 +20,7 @@ interface ApplicationFromApi {
   updatedAt: string;
   handledBy: string | null;
   handledAt: string | null;
+  source: string;
   product: { id: string; name: string; slug: string } | null;
 }
 
@@ -57,6 +60,7 @@ export default function AdminRequestsPage() {
   const [isLoading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "">("");
   const [viewing, setViewing] = useState<ApplicationFromApi | null>(null);
+  const [isCreating, setCreating] = useState(false);
 
   // Загрузка списка
   useEffect(() => {
@@ -83,6 +87,24 @@ export default function AdminRequestsPage() {
     }
 
     setApplications((prev) => prev.filter((a) => a.id !== app.id));
+  };
+
+  const handleCreate = async (values: ManualApplicationValues) => {
+    const response = await fetch("/api/admin/applications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      alert(error.error ?? "Не удалось добавить заявку");
+      return;
+    }
+
+    const created: ApplicationFromApi = await response.json();
+    setApplications((prev) => [created, ...prev]);
+    setCreating(false);
   };
 
   const changeStatus = async (id: string, status: ApplicationStatus) => {
@@ -121,9 +143,19 @@ export default function AdminRequestsPage() {
             Заявки
           </h1>
           <p className="mt-1 text-sm text-text/60">
-            Заявки с сайта: с формы «Узнать стоимость» и со страницы контактов
+            Заявки с сайта: с формы «Узнать стоимость» и со страницы контактов,
+            а также добавленные вручную
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-dark"
+        >
+          <Plus size={16} />
+          Добавить заявку
+        </button>
       </div>
 
       {/* Фильтр */}
@@ -184,6 +216,11 @@ export default function AdminRequestsPage() {
                   >
                     <td className="px-5 py-3">
                       <span className="font-medium text-text">{app.name}</span>
+                      {app.source === "manual" && (
+                        <span className="ml-2 rounded-full bg-beige px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
+                          вручную
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-3 text-sm text-text/70">
                       {app.phone}
@@ -244,6 +281,18 @@ export default function AdminRequestsPage() {
       </p>
 
       {/* Модалка */}
+      {/* Добавление заявки вручную */}
+      <Modal
+        isOpen={isCreating}
+        onClose={() => setCreating(false)}
+        title="Новая заявка"
+      >
+        <ApplicationForm
+          onSubmit={handleCreate}
+          onCancel={() => setCreating(false)}
+        />
+      </Modal>
+
       <Modal isOpen={!!viewing} onClose={() => setViewing(null)} title="Заявка">
         {viewing && (
           <div className="space-y-5">
