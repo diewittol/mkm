@@ -4,7 +4,13 @@ import { createManualApplication } from "@/lib/manual-application";
 import { parsePhone } from "@/lib/phone";
 import { groupNotes } from "@/lib/note-groups";
 import { formatRub, parsePrice } from "@/lib/money";
-import { monthlyStats, periodStats, type Totals } from "@/lib/order-stats";
+import {
+  formatMonth,
+  monthlyStats,
+  mskYearMonth,
+  periodStats,
+  type Totals,
+} from "@/lib/order-stats";
 import {
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
@@ -443,9 +449,6 @@ async function statsView(): Promise<View> {
 
 // --- Суммы по заказам (только владелец) -------------------------------------
 
-const monthName = (year: number, month: number) =>
-  `${new Date(Date.UTC(year, month, 1)).toLocaleString("ru-RU", { month: "long", timeZone: "UTC" })} ${year}`;
-
 function totalsLines(totals: Totals): string[] {
   if (totals.count === 0) return ["Заявок нет"];
 
@@ -472,9 +475,7 @@ async function moneyRows() {
 async function moneyView(): Promise<View> {
   const now = new Date();
   const stats = periodStats(await moneyRows(), now);
-  const mskNow = new Date(now.getTime() + MSK_OFFSET_MS);
-  const currentYear = mskNow.getUTCFullYear();
-  const currentMonth = mskNow.getUTCMonth();
+  const { year: currentYear, month: currentMonth } = mskYearMonth(now);
   const prev = new Date(Date.UTC(currentYear, currentMonth - 1, 1));
 
   const block = (title: string, totals: Totals) => [`<b>${title}</b>`, ...totalsLines(totals), ""];
@@ -484,9 +485,9 @@ async function moneyView(): Promise<View> {
     "<i>По дате заявки, без отклонённых. «Выполнено»: статус «Обработана».</i>",
     "",
     ...block("Сегодня", stats.today),
-    ...block(`Этот месяц (${monthName(currentYear, currentMonth)})`, stats.month),
+    ...block(`Этот месяц (${formatMonth(currentYear, currentMonth)})`, stats.month),
     ...block(
-      `Прошлый месяц (${monthName(prev.getUTCFullYear(), prev.getUTCMonth())})`,
+      `Прошлый месяц (${formatMonth(prev.getUTCFullYear(), prev.getUTCMonth())})`,
       stats.prevMonth,
     ),
     ...block(`С начала года (${currentYear})`, stats.year),
@@ -511,7 +512,7 @@ async function monthsView(): Promise<View> {
   for (const { year, month, totals } of months) {
     const sum = totals.priced > 0 ? `${formatRub(totals.sum)}` : "без стоимости";
     const done = totals.priced > 0 ? `, выполнено ${formatRub(totals.doneSum)}` : "";
-    lines.push(`<b>${monthName(year, month)}</b>: ${totals.count} заявок, ${sum}${done}`);
+    lines.push(`<b>${formatMonth(year, month)}</b>: ${totals.count} заявок, ${sum}${done}`);
   }
 
   return {

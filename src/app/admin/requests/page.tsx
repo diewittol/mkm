@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ApplicationForm } from "@/components/admin/ApplicationForm";
 import { ApplicationNotes } from "@/components/admin/ApplicationNotes";
 import { ApplicationPrice } from "@/components/admin/ApplicationPrice";
+import { MoneyStats } from "@/components/admin/MoneyStats";
 import { formatRub } from "@/lib/money";
 import type { ManualApplicationValues } from "@/lib/schemas";
 import {
@@ -162,6 +163,9 @@ export default function AdminRequestsPage() {
           Добавить заявку
         </button>
       </div>
+
+      {/* Сводка по стоимости */}
+      {!isLoading && <MoneyStats applications={applications} />}
 
       {/* Фильтр */}
       <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">

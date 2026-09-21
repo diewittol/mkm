@@ -104,3 +104,13 @@ export function monthlyStats(rows: StatRow[], now: Date, count = 12): MonthStats
   }
   return months;
 }
+
+// «сентябрь 2026»
+export const formatMonth = (year: number, month: number) =>
+  `${new Date(Date.UTC(year, month, 1)).toLocaleString("ru-RU", { month: "long", timeZone: "UTC" })} ${year}`;
+
+// Год и месяц (0–11) сейчас по Москве
+export function mskYearMonth(now: Date) {
+  const { year, month } = mskParts(now);
+  return { year, month };
+}
