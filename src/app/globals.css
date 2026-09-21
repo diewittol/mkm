@@ -24,3 +24,99 @@ body {
   color: #242424;
   font-family: var(--font-inter), Arial, sans-serif;
 }
+/* Таблицы админки без горизонтальной прокрутки: на узких экранах строка
+   превращается в карточку, а подпись столбца берётся из data-label.
+   table-stack — ниже lg (там, где нет боковой панели), table-stack-xl — ниже xl. */
+@media (max-width: 1023px) {
+  .table-stack,
+  .table-stack tbody,
+  .table-stack tr,
+  .table-stack td {
+    display: block;
+    width: 100%;
+  }
+  .table-stack thead {
+    display: none;
+  }
+  .table-stack tr {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .table-stack tr:last-child {
+    border-bottom: 0;
+  }
+  .table-stack td {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 1rem;
+    padding: 0.3rem 0;
+    text-align: left;
+  }
+  .table-stack td[data-label] {
+    justify-content: space-between;
+    text-align: right;
+  }
+  .table-stack td[data-label]::before {
+    content: attr(data-label);
+    flex: none;
+    font-size: 0.75rem;
+    color: rgb(36 36 36 / 0.5);
+    text-align: left;
+  }
+  .table-stack td[data-actions] {
+    justify-content: flex-end;
+    padding-top: 0.5rem;
+  }
+  .table-stack td[colspan] {
+    display: block;
+    text-align: center;
+  }
+}
+
+@media (max-width: 1279px) {
+  .table-stack-xl,
+  .table-stack-xl tbody,
+  .table-stack-xl tr,
+  .table-stack-xl td {
+    display: block;
+    width: 100%;
+  }
+  .table-stack-xl thead {
+    display: none;
+  }
+  .table-stack-xl tr {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .table-stack-xl tr:last-child {
+    border-bottom: 0;
+  }
+  .table-stack-xl td {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 1rem;
+    padding: 0.3rem 0;
+    text-align: left;
+  }
+  .table-stack-xl td[data-label] {
+    justify-content: space-between;
+    text-align: right;
+  }
+  .table-stack-xl td[data-label]::before {
+    content: attr(data-label);
+    flex: none;
+    font-size: 0.75rem;
+    color: rgb(36 36 36 / 0.5);
+    text-align: left;
+  }
+  .table-stack-xl td[data-actions] {
+    justify-content: flex-end;
+    padding-top: 0.5rem;
+  }
+  .table-stack-xl td[colspan] {
+    display: block;
+    text-align: center;
+  }
+}

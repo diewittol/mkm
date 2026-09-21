@@ -187,7 +187,7 @@ export default function AdminRequestsPage() {
       {/* Таблица */}
       <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-white">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px]">
+          <table className="table-stack-xl w-full">
             <thead className="border-b border-border bg-background/50">
               <tr className="text-left text-xs font-medium uppercase tracking-wider text-text/50">
                 <th className="px-5 py-3">Имя</th>
@@ -225,48 +225,52 @@ export default function AdminRequestsPage() {
                     className="border-b border-border last:border-0 hover:bg-background/50"
                   >
                     <td className="px-5 py-3">
-                      <span className="font-medium text-text">{app.name}</span>
-                      {(app._count?.notes ?? 0) > 0 && (
-                        <span className="ml-2 text-xs text-text/40">
-                          заметок: {app._count?.notes}
-                        </span>
-                      )}
-                      {app.source === "manual" && (
-                        <span className="ml-2 rounded-full bg-beige px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
-                          вручную
-                        </span>
-                      )}
+                      <div>
+                        <span className="font-medium text-text">{app.name}</span>
+                        {(app._count?.notes ?? 0) > 0 && (
+                          <span className="ml-2 text-xs text-text/40">
+                            заметок: {app._count?.notes}
+                          </span>
+                        )}
+                        {app.source === "manual" && (
+                          <span className="ml-2 rounded-full bg-beige px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
+                            вручную
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Телефон">
                       {app.phone}
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Товар / тема">
                       <span className="line-clamp-1 max-w-[280px]">
                         {app.product?.name ?? app.message ?? "—"}
                       </span>
                     </td>
-                    <td className="px-5 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[app.status]}`}
-                      >
+                    <td className="px-5 py-3" data-label="Статус">
+                      <div>
                         <span
-                          className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[app.status]}`}
-                        />
-                        {APPLICATION_STATUS_LABELS[app.status]}
-                      </span>
-                      {app.handledBy && (
-                        <p className="mt-1 text-xs text-text/50">
-                          {app.handledBy}
-                        </p>
-                      )}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[app.status]}`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[app.status]}`}
+                          />
+                          {APPLICATION_STATUS_LABELS[app.status]}
+                        </span>
+                        {app.handledBy && (
+                          <p className="mt-1 text-xs text-text/50">
+                            {app.handledBy}
+                          </p>
+                        )}
+                      </div>
                     </td>
-                    <td className="whitespace-nowrap px-5 py-3 text-sm text-text/70">
+                    <td className="whitespace-nowrap px-5 py-3 text-sm text-text/70" data-label="Стоимость">
                       {app.price ? formatRub(app.price) : "—"}
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/60">
+                    <td className="px-5 py-3 text-sm text-text/60" data-label="Дата">
                       {formatDate(app.createdAt)}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3" data-actions>
                       <div className="flex justify-end gap-1">
                         <button
                           type="button"

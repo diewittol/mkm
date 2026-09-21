@@ -108,7 +108,7 @@ export default function AdminCategoriesPage() {
       {/* Таблица */}
       <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-white">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px]">
+          <table className="table-stack w-full">
             <thead className="border-b border-border bg-background/50">
               <tr className="text-left text-xs font-medium uppercase tracking-wider text-text/50">
                 <th className="px-5 py-3">Изображение</th>
@@ -161,13 +161,13 @@ export default function AdminCategoriesPage() {
                         {category.name}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Slug">
                       {category.slug}
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Порядок">
                       {category.order}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3" data-actions>
                       <div className="flex justify-end gap-1">
                         <button
                           type="button"

@@ -101,7 +101,7 @@ export const MoneyStats = ({ applications }: { applications: StatApplication[] }
       {showMonths && (
         <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-white">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px]">
+            <table className="table-stack w-full">
               <thead className="border-b border-border bg-background/50">
                 <tr className="text-left text-xs font-medium uppercase tracking-wider text-text/50">
                   <th className="px-5 py-3">Месяц</th>
@@ -123,16 +123,16 @@ export const MoneyStats = ({ applications }: { applications: StatApplication[] }
                       <td className="px-5 py-3 text-sm font-medium capitalize text-text">
                         {formatMonth(y, m)}
                       </td>
-                      <td className="px-5 py-3 text-sm text-text/70">
+                      <td className="px-5 py-3 text-sm text-text/70" data-label="Заявок">
                         {totals.count}
                         {totals.priced < totals.count && (
                           <span className="text-text/40"> (без цены: {totals.count - totals.priced})</span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-5 py-3 text-sm text-text">
+                      <td className="whitespace-nowrap px-5 py-3 text-sm text-text" data-label="Сумма">
                         {totals.priced > 0 ? formatRub(totals.sum) : "—"}
                       </td>
-                      <td className="whitespace-nowrap px-5 py-3 text-sm text-text/70">
+                      <td className="whitespace-nowrap px-5 py-3 text-sm text-text/70" data-label="Выполнено">
                         {totals.priced > 0
                           ? `${totals.doneCount} на ${formatRub(totals.doneSum)}`
                           : "—"}

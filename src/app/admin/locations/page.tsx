@@ -106,7 +106,7 @@ export default function AdminLocationsPage() {
 
       <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-white">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px]">
+          <table className="table-stack w-full">
             <thead className="border-b border-border bg-background/50">
               <tr className="text-left text-xs font-medium uppercase tracking-wider text-text/50">
                 <th className="px-5 py-3">Название</th>
@@ -147,17 +147,17 @@ export default function AdminLocationsPage() {
                         {location.title}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Адрес">
                       {location.address}
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Часы работы">
                       {location.hours ?? "—"}
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Координаты">
                       {formatCoordinates(location.lat, location.lon) ||
                         "по адресу"}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3" data-actions>
                       <div className="flex justify-end gap-1">
                         <button
                           type="button"

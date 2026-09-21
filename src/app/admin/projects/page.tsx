@@ -113,7 +113,7 @@ export default function AdminProjectsPage() {
 
       <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-white">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
+          <table className="table-stack w-full">
             <thead className="border-b border-border bg-background/50">
               <tr className="text-left text-xs font-medium uppercase tracking-wider text-text/50">
                 <th className="px-5 py-3">Фото</th>
@@ -167,13 +167,13 @@ export default function AdminProjectsPage() {
                         {project.title}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Локация">
                       {project.location ?? "—"}
                     </td>
-                    <td className="px-5 py-3 text-sm text-text/70">
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="Порядок">
                       {project.order}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3" data-label="Статус">
                       <span
                         className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
                           project.isPublished
@@ -191,7 +191,7 @@ export default function AdminProjectsPage() {
                         {project.isPublished ? "Опубликован" : "Черновик"}
                       </span>
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3" data-actions>
                       <div className="flex justify-end gap-1">
                         <button
                           type="button"
