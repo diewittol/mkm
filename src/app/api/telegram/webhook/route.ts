@@ -13,6 +13,36 @@ function secretMatches(received: string | null): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// Что в сообщении: текст, фото, файл-картинка или что-то, что бот не принимает
+function describeMessage(message: Record<string, unknown>) {
+  const photos = Array.isArray(message.photo) ? message.photo : [];
+  const largestPhoto = photos.at(-1) as { file_id?: string; file_size?: number } | undefined;
+
+  const document = message.document as
+    | { file_id?: string; file_size?: number; mime_type?: string }
+    | undefined;
+  const imageDocument = document?.mime_type?.startsWith("image/") ? document : undefined;
+
+  const source = largestPhoto ?? imageDocument;
+  const hasOtherMedia = Boolean(
+    (document && !imageDocument) ||
+      message.video ||
+      message.voice ||
+      message.audio ||
+      message.video_note ||
+      message.animation ||
+      message.sticker,
+  );
+
+  return {
+    text: typeof message.text === "string" ? message.text : undefined,
+    caption: typeof message.caption === "string" ? message.caption : undefined,
+    photoFileId: source?.file_id,
+    photoSize: source?.file_size,
+    unsupported: hasOtherMedia,
+  };
+}
+
 // POST /api/telegram/webhook — сообщения и нажатия кнопок из личных чатов с ботом.
 // Telegram присылает сюда update, подписанный секретом из setWebhook.
 // Права (владелец / менеджер / нет доступа) проверяет сам бот по Telegram ID.
@@ -31,16 +61,16 @@ export async function POST(request: Request) {
 
     if (query?.data && query.from && query.message?.chat?.type === "private") {
       await handleCallback(query);
-    } else if (
-      typeof message?.text === "string" &&
-      message.from &&
-      message.chat?.type === "private"
-    ) {
-      await handleMessage({
-        chatId: message.chat.id,
-        from: message.from,
-        text: message.text,
-      });
+    } else if (message?.from && message.chat?.type === "private") {
+      const parts = describeMessage(message);
+      if (parts.text !== undefined || parts.photoFileId || parts.unsupported) {
+        await handleMessage({
+          chatId: message.chat.id,
+          messageId: message.message_id,
+          from: message.from,
+          ...parts,
+        });
+      }
     }
   } catch (error) {
     console.error("Telegram webhook error:", error);

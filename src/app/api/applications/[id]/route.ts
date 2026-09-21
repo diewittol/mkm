@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isAuthenticated } from "@/lib/auth";
+import { deleteApplicationWithFiles } from "@/lib/order-notes";
 
 export const runtime = "nodejs";
 
@@ -58,7 +59,7 @@ export async function DELETE(
     );
   }
 
-  await prisma.application.delete({ where: { id } });
+  await deleteApplicationWithFiles(id);
 
   return NextResponse.json({ success: true });
 }

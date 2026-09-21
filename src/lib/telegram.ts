@@ -63,7 +63,12 @@ export function buildApplicationText(
 export function buildKeyboard(
   app: ApplicationForTelegram,
   currentStatus?: string,
-  options: { card?: boolean; back?: KeyboardBack; canDelete?: boolean } = {},
+  options: {
+    card?: boolean;
+    back?: KeyboardBack;
+    canDelete?: boolean;
+    notesCount?: number;
+  } = {},
 ) {
   const rows: { text: string; url?: string; callback_data?: string }[][] = [];
 
@@ -97,6 +102,15 @@ export function buildKeyboard(
   }
 
   if (options.card) {
+    rows.push([
+      {
+        text: options.notesCount
+          ? `Заметки и фото (${options.notesCount})`
+          : "Заметки и фото",
+        callback_data: `nt:${app.id}${ctx}`,
+      },
+    ]);
+
     const actionRow: { text: string; callback_data: string }[] = [];
     if (options.back) {
       actionRow.push({
@@ -201,4 +215,129 @@ export async function notifyNewApplication(
   });
   const keyboard = buildKeyboard(app, options.status);
   await Promise.all(recipients.map((id) => sendMessage(id, text, keyboard)));
+}
+
+// --- Файлы и реакции -------------------------------------------------------
+
+const FILE_TIMEOUT_MS = 30000;
+
+async function telegramResult<T>(method: string, payload: unknown): Promise<T | null> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
+    });
+    const json = await response.json().catch(() => null);
+    if (!json?.ok) {
+      console.error(`Telegram ${method} failed:`, response.status, JSON.stringify(json));
+      return null;
+    }
+    return json.result as T;
+  } catch (error) {
+    console.error(`Telegram ${method} error:`, error);
+    return null;
+  }
+}
+
+export type DownloadResult =
+  | { ok: true; data: Buffer }
+  | { ok: false; reason: "too_large" | "failed" };
+
+// Скачивает файл, который прислали боту (фото или документ-картинка)
+export async function downloadTelegramFile(
+  fileId: string,
+  maxBytes: number,
+): Promise<DownloadResult> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const info = await telegramResult<{ file_path?: string; file_size?: number }>(
+    "getFile",
+    { file_id: fileId },
+  );
+  if (!token || !info?.file_path) return { ok: false, reason: "failed" };
+  if (info.file_size && info.file_size > maxBytes) {
+    return { ok: false, reason: "too_large" };
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.telegram.org/file/bot${token}/${info.file_path}`,
+      { signal: AbortSignal.timeout(FILE_TIMEOUT_MS) },
+    );
+    if (!response.ok) return { ok: false, reason: "failed" };
+
+    const data = Buffer.from(await response.arrayBuffer());
+    return data.length > maxBytes
+      ? { ok: false, reason: "too_large" }
+      : { ok: true, data };
+  } catch (error) {
+    console.error("Telegram file download error:", error);
+    return { ok: false, reason: "failed" };
+  }
+}
+
+export interface AlbumPhoto {
+  data: Buffer;
+  caption?: string;
+}
+
+// Отправляет до 10 фото одним сообщением-альбомом (или одно фото)
+export async function sendPhotoAlbum(chatId: string | number, photos: AlbumPhoto[]) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const items = photos.slice(0, 10);
+  if (!token || items.length === 0) return false;
+
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+
+  let method = "sendPhoto";
+  if (items.length === 1) {
+    form.append("photo", new Blob([new Uint8Array(items[0].data)], { type: "image/jpeg" }), "photo.jpg");
+    if (items[0].caption) form.append("caption", items[0].caption.slice(0, 1000));
+  } else {
+    method = "sendMediaGroup";
+    form.append(
+      "media",
+      JSON.stringify(
+        items.map((item, index) => ({
+          type: "photo",
+          media: `attach://p${index}`,
+          ...(item.caption ? { caption: item.caption.slice(0, 1000) } : {}),
+        })),
+      ),
+    );
+    items.forEach((item, index) => {
+      form.append(`p${index}`, new Blob([new Uint8Array(item.data)], { type: "image/jpeg" }), `p${index}.jpg`);
+    });
+  }
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(FILE_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.error(`Telegram ${method} failed:`, response.status, await response.text().catch(() => ""));
+    }
+    return response.ok;
+  } catch (error) {
+    console.error(`Telegram ${method} error:`, error);
+    return false;
+  }
+}
+
+// Тихое подтверждение «принято» — реакция на сообщение вместо ответа
+// на каждое фото. Возвращает false, если реакцию поставить не удалось.
+export async function reactToMessage(chatId: string | number, messageId: number) {
+  const ok = await telegramCall("setMessageReaction", {
+    chat_id: chatId,
+    message_id: messageId,
+    reaction: [{ type: "emoji", emoji: "\u{1F44C}" }],
+  });
+  return ok === true;
 }

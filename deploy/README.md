@@ -52,9 +52,9 @@ sudo systemctl restart mkm
 
 ## Бэкапы
 
-`prisma/dev.db` и `public/uploads/` — единственные хранилища данных
-сайта, в git не попадают. Например, простой cron раз в сутки:
+`prisma/dev.db`, `public/uploads/` и `private-uploads/` (закрытые фото
+заказов) — единственные хранилища данных сайта, в git не попадают. Например, простой cron раз в сутки:
 
 ```bash
-0 3 * * * tar -czf /var/backups/mkm-$(date +\%F).tar.gz -C /var/www/mkm prisma/dev.db public/uploads
+0 3 * * * tar -czf /var/backups/mkm-$(date +\%F).tar.gz -C /var/www/mkm prisma/dev.db public/uploads private-uploads
 ```

@@ -21,6 +21,7 @@ export async function GET() {
       product: {
         select: { id: true, name: true, slug: true },
       },
+      _count: { select: { notes: true } },
     },
     orderBy: { createdAt: "desc" },
   });

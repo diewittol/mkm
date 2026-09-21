@@ -2,6 +2,8 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { createManualApplication } from "@/lib/manual-application";
 import { parsePhone } from "@/lib/phone";
+import { addApplicationNote, deleteApplicationWithFiles } from "@/lib/order-notes";
+import { MAX_PHOTO_BYTES, readOrderPhoto } from "@/lib/order-files";
 import { APPLICATION_STATUS_LABELS } from "@/types/application";
 import {
   answerCallback,
@@ -12,6 +14,9 @@ import {
   isButtonStatus,
   sendMessage,
   telegramCall,
+  downloadTelegramFile,
+  reactToMessage,
+  sendPhotoAlbum,
   type ApplicationForTelegram,
   type KeyboardBack,
 } from "@/lib/telegram";
@@ -191,7 +196,10 @@ async function cardView(
 ): Promise<View | null> {
   const application = await prisma.application.findUnique({
     where: { id },
-    include: { product: { select: { name: true } } },
+    include: {
+      product: { select: { name: true } },
+      _count: { select: { notes: true } },
+    },
   });
   if (!application) return null;
 
@@ -220,8 +228,69 @@ async function cardView(
       card: true,
       back,
       canDelete: role === "owner",
+      notesCount: application._count.notes,
     }),
   };
+}
+
+// Лента заметок и фото заявки
+const NOTES_SHOWN = 8;
+const NOTE_PREVIEW_CHARS = 300;
+
+async function notesView(id: string, back?: KeyboardBack): Promise<View | null> {
+  const application = await prisma.application.findUnique({
+    where: { id },
+    select: { name: true, phone: true },
+  });
+  if (!application) return null;
+
+  const total = await prisma.applicationNote.count({ where: { applicationId: id } });
+  const photos = await prisma.applicationNote.count({
+    where: { applicationId: id, photo: { not: null } },
+  });
+  const recent = (
+    await prisma.applicationNote.findMany({
+      where: { applicationId: id },
+      orderBy: { createdAt: "desc" },
+      take: NOTES_SHOWN,
+    })
+  ).reverse();
+
+  const lines = [
+    `<b>Заметки: ${escapeHtml(application.name)}, ${escapeHtml(application.phone)}</b>`,
+    "",
+  ];
+
+  if (total === 0) {
+    lines.push("Пока пусто. Нажмите «Добавить» и присылайте размеры, пожелания и фото.");
+  } else {
+    if (total > recent.length) {
+      lines.push(`Показаны последние ${recent.length} из ${total}. Вся лента: в админке.`, "");
+    }
+    for (const note of recent) {
+      const text = note.text
+        ? escapeHtml(
+            note.text.length > NOTE_PREVIEW_CHARS
+              ? `${note.text.slice(0, NOTE_PREVIEW_CHARS)}…`
+              : note.text,
+          )
+        : "";
+      const body = [text, note.photo ? "[фото]" : ""].filter(Boolean).join(" ");
+      lines.push(`<i>${formatDate(note.createdAt)} ${escapeHtml(note.author)}</i>
+${body}`, "");
+    }
+  }
+
+  const ctx = back ? `:${back.filter}:${back.page}` : ":s:0";
+  const rows: { text: string; callback_data: string }[][] = [
+    [{ text: "Добавить заметку или фото", callback_data: `na:${id}${ctx}` }],
+  ];
+  if (photos > 0) {
+    rows.push([{ text: `Показать фото (${photos})`, callback_data: `np:${id}` }]);
+  }
+  rows.push([{ text: "К заявке", callback_data: `op:${id}${ctx}` }]);
+
+  return { text: lines.join("\n").trim(), markup: { inline_keyboard: rows } };
 }
 
 async function statsView(): Promise<View> {
@@ -567,14 +636,87 @@ async function handleDraftAnswer(
 
 export interface IncomingMessage {
   chatId: number;
+  messageId: number;
   from: TelegramFrom;
-  text: string;
+  text?: string;
+  caption?: string;
+  photoFileId?: string;
+  photoSize?: number;
+  // Вложение, которое бот пока не принимает (видео, голосовое, не-картинка)
+  unsupported?: boolean;
 }
 
-// Обычные сообщения из личного чата: кнопки меню, команды, поиск, приглашения
-export async function handleMessage({ chatId, from, text }: IncomingMessage) {
-  const trimmed = text.trim();
-  const [head, arg] = trimmed.split(/\s+/);
+// --- Заметки и фото внутри заявки ----------------------------------------
+
+const NOTE_TTL_MS = 30 * 60 * 1000;
+
+// Режим «заметки»: к какой заявке сейчас добавляются текст и фото
+async function activeNoteDraft(userId: string) {
+  const draft = await prisma.telegramDraft.findUnique({ where: { chatId: userId } });
+  const fresh = draft && Date.now() - draft.updatedAt.getTime() < NOTE_TTL_MS;
+  return draft && fresh && draft.step === "note" && draft.applicationId ? draft : null;
+}
+
+// Тихое подтверждение (реакция); если её поставить нельзя — короткий ответ
+async function acknowledge(chatId: number, messageId: number) {
+  if (!(await reactToMessage(chatId, messageId))) {
+    await sendMessage(chatId, "Добавлено.");
+  }
+}
+
+async function saveNoteFromChat(
+  msg: IncomingMessage,
+  userId: string,
+  applicationId: string,
+  text: string | undefined,
+) {
+  const { chatId, from } = msg;
+
+  let photo: Buffer | null = null;
+  if (msg.photoFileId) {
+    if (msg.photoSize && msg.photoSize > MAX_PHOTO_BYTES) {
+      return sendMessage(chatId, "Файл больше 10 МБ. Отправьте фото поменьше.");
+    }
+    const downloaded = await downloadTelegramFile(msg.photoFileId, MAX_PHOTO_BYTES);
+    if (!downloaded.ok) {
+      return sendMessage(
+        chatId,
+        downloaded.reason === "too_large"
+          ? "Файл больше 10 МБ. Отправьте фото поменьше."
+          : "Не удалось получить фото от Telegram, отправьте ещё раз.",
+      );
+    }
+    photo = downloaded.data;
+  }
+
+  try {
+    await addApplicationNote({
+      applicationId,
+      author: displayName(from),
+      text,
+      photo,
+    });
+  } catch {
+    return sendMessage(
+      chatId,
+      "Не удалось сохранить. Проверьте, что это фото (JPG, PNG, WEBP), и что заявку не удалили.",
+    );
+  }
+
+  // Продлеваем режим заметок: пока идёт поток фото, он не «протухнет»
+  await prisma.telegramDraft.update({
+    where: { chatId: userId },
+    data: { step: "note" },
+  });
+  return acknowledge(chatId, msg.messageId);
+}
+
+// Обычные сообщения из личного чата: кнопки меню, команды, поиск,
+// приглашения, диалог добавления заявки и заметки с фото
+export async function handleMessage(msg: IncomingMessage) {
+  const { chatId, from } = msg;
+  const trimmed = (msg.text ?? "").trim();
+  const [head = "", arg] = trimmed.split(/s+/);
   const command = head.startsWith("/") ? head.split("@")[0].toLowerCase() : null;
 
   const role = await getRole(String(from.id));
@@ -589,6 +731,23 @@ export async function handleMessage({ chatId, from, text }: IncomingMessage) {
   const key = command ?? trimmed;
   const userId = String(from.id);
 
+  // Вложения: фото (или картинка-файл) идёт в заметки открытой заявки
+  if (msg.photoFileId || msg.unsupported) {
+    const noteDraft = await activeNoteDraft(userId);
+    if (!noteDraft?.applicationId) {
+      return sendMessage(
+        chatId,
+        "Чтобы прикрепить фото к заказу, откройте заявку и нажмите «Заметки и фото», затем «Добавить».",
+      );
+    }
+    if (!msg.photoFileId) {
+      return sendMessage(chatId, "Пока принимаю только текст и фото (можно отправить как файл).");
+    }
+    return saveNoteFromChat(msg, userId, noteDraft.applicationId, msg.caption?.trim());
+  }
+
+  if (!trimmed) return;
+
   // Ручное добавление заявки: старт, отмена и приём текста
   if (key === MENU.add || command === "/add") {
     const inline = command === "/add" ? trimmed.slice(head.length).trim() : "";
@@ -599,7 +758,7 @@ export async function handleMessage({ chatId, from, text }: IncomingMessage) {
 
   if (command === "/cancel") {
     await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
-    return sendMessage(chatId, "Добавление заявки отменено.");
+    return sendMessage(chatId, "Отменено.");
   }
 
   if (MENU_KEYS.has(key) || command) {
@@ -616,6 +775,14 @@ export async function handleMessage({ chatId, from, text }: IncomingMessage) {
       Date.now() - draft.updatedAt.getTime() < DRAFT_TTL_MS
     ) {
       return handleDraftAnswer(chatId, userId, draft, trimmed);
+    }
+    // Открыт режим заметок: текст добавляется в ленту заявки
+    if (
+      draft?.step === "note" &&
+      draft.applicationId &&
+      Date.now() - draft.updatedAt.getTime() < NOTE_TTL_MS
+    ) {
+      return saveNoteFromChat(msg, userId, draft.applicationId, trimmed);
     }
   }
 
@@ -784,7 +951,7 @@ export async function handleCallback(query: IncomingCallback) {
       if (await ownerOnly()) return;
       const [id, filter, page] = rest;
       if (!id) break;
-      await prisma.application.deleteMany({ where: { id } });
+      await deleteApplicationWithFiles(id);
 
       if (isFilter(filter)) {
         await edit(chatId, messageId, await listView(filter, Number(page) || 0));
@@ -849,6 +1016,87 @@ export async function handleCallback(query: IncomingCallback) {
       if (view) await edit(chatId, messageId, view);
       await answerCallback(query.id, "Заявка создана");
       return;
+    }
+
+    // nt:<id>:<filter>:<page> — лента заметок заявки
+    case "nt": {
+      const [id, filter, page] = rest;
+      const view = id ? await notesView(id, backFrom(filter, page)) : null;
+      if (!view) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      await edit(chatId, messageId, view);
+      break;
+    }
+
+    // na:<id>:<filter>:<page> — включить режим «присылаю заметки и фото»
+    case "na": {
+      const [id] = rest;
+      const application = id
+        ? await prisma.application.findUnique({ where: { id }, select: { name: true } })
+        : null;
+      if (!id || !application) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      const userId = String(query.from.id);
+      await prisma.telegramDraft.upsert({
+        where: { chatId: userId },
+        create: { chatId: userId, step: "note", applicationId: id },
+        update: { step: "note", applicationId: id, name: null, phone: null, message: null },
+      });
+      await sendMessage(
+        chatId,
+        `<b>Заметки: ${escapeHtml(application.name)}</b>
+
+Пришлите текст или фото: всё попадёт в ленту этого заказа (размеры, пожелания, замеры). Фото лучше отправлять «как файл» (скрепка, затем Файл): так они не теряют чёткость. Можно присылать сколько нужно.
+
+Когда закончите, нажмите «Готово».`,
+        { inline_keyboard: [[{ text: "Готово", callback_data: "nd" }]] },
+      );
+      break;
+    }
+
+    // nd — выйти из режима заметок
+    case "nd": {
+      await prisma.telegramDraft.deleteMany({ where: { chatId: String(query.from.id) } });
+      await editMessage(chatId, messageId, "Готово. Всё добавленное лежит в ленте заявки («Заметки и фото»).");
+      break;
+    }
+
+    // np:<id> — прислать фото заявки альбомом
+    case "np": {
+      const [id] = rest;
+      const notes = id
+        ? await prisma.applicationNote.findMany({
+            where: { applicationId: id, photo: { not: null } },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+          })
+        : [];
+      const files = (
+        await Promise.all(
+          notes.reverse().map(async (note) => {
+            const data = note.photo ? await readOrderPhoto(note.photo) : null;
+            return data
+              ? {
+                  data,
+                  caption: [`${formatDate(note.createdAt)} ${note.author}`, note.text]
+                    .filter(Boolean)
+                    .join(": "),
+                }
+              : null;
+          }),
+        )
+      ).filter((item): item is { data: Buffer; caption: string } => item !== null);
+
+      if (files.length === 0) {
+        await answerCallback(query.id, "Фото не найдены");
+        return;
+      }
+      await sendPhotoAlbum(chatId, files);
+      break;
     }
 
     // ac — раздел «Доступ»

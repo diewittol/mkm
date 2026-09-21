@@ -93,6 +93,8 @@ model Application {
   // Откуда заявка: site — форма на сайте, manual — добавлена вручную (сарафан и т.п.)
   source String @default("site")
 
+  notes ApplicationNote[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -168,6 +170,8 @@ model TelegramDraft {
   name      String?
   phone     String?
   message   String?
+  // Режим «заметки»: к какой заявке сейчас добавляются заметки и фото
+  applicationId String?
   updatedAt DateTime @updatedAt
 }
 
@@ -181,4 +185,19 @@ model Location {
   lon       Float?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Лента заметок и фото внутри заявки (замеры, пожелания, эскизы).
+// Фото хранятся в закрытой папке, не в public/.
+model ApplicationNote {
+  id            String   @id @default(cuid())
+  applicationId String
+  author        String   // @username, имя из Telegram или «админка»
+  text          String?
+  photo         String?  // имя файла в private-uploads/orders
+  createdAt     DateTime @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
 }

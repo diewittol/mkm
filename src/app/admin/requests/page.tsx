@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Eye, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { ApplicationForm } from "@/components/admin/ApplicationForm";
+import { ApplicationNotes } from "@/components/admin/ApplicationNotes";
 import type { ManualApplicationValues } from "@/lib/schemas";
 import {
   APPLICATION_STATUS_LABELS,
@@ -21,6 +22,7 @@ interface ApplicationFromApi {
   handledBy: string | null;
   handledAt: string | null;
   source: string;
+  _count?: { notes: number };
   product: { id: string; name: string; slug: string } | null;
 }
 
@@ -216,6 +218,11 @@ export default function AdminRequestsPage() {
                   >
                     <td className="px-5 py-3">
                       <span className="font-medium text-text">{app.name}</span>
+                      {(app._count?.notes ?? 0) > 0 && (
+                        <span className="ml-2 text-xs text-text/40">
+                          заметок: {app._count?.notes}
+                        </span>
+                      )}
                       {app.source === "manual" && (
                         <span className="ml-2 rounded-full bg-beige px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
                           вручную
@@ -356,6 +363,16 @@ export default function AdminRequestsPage() {
                 </p>
               </div>
             )}
+
+            <ApplicationNotes
+              key={viewing.id}
+              applicationId={viewing.id}
+              onCountChange={(count) => {
+                const patchCount = (a: ApplicationFromApi) =>
+                  a.id === viewing.id ? { ...a, _count: { notes: count } } : a;
+                setApplications((prev) => prev.map(patchCount));
+              }}
+            />
 
             <div className="border-t border-border pt-5">
               <p className="text-xs font-medium uppercase tracking-wider text-text/50">
