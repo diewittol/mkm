@@ -42,6 +42,7 @@ import {
   reactToMessage,
   sendPhotoAlbum,
   sendAudioFile,
+  BUTTON_STATUSES,
   type ApplicationForTelegram,
   type KeyboardBack,
 } from "@/lib/telegram";
@@ -269,9 +270,89 @@ async function cardView(
       back,
       canDelete: role === "owner",
       notesCount: application._count.notes,
-      price: role === "owner" ? application.price : undefined,
-      expenses: expenseSum,
+      finance: role === "owner" ? { price: application.price, expenses: expenseSum ?? 0 } : undefined,
     }),
+  };
+}
+
+// Экран «Статус» (открывается с карточки): смена статуса — отдельный шаг,
+// чтобы не занимать место в карточке тремя-четырьмя кнопками сразу
+async function statusMenuView(id: string, back?: KeyboardBack): Promise<View | null> {
+  const application = await prisma.application.findUnique({
+    where: { id },
+    select: { name: true, status: true, handledBy: true, handledAt: true },
+  });
+  if (!application) return null;
+
+  const ctx = ctxOf(back);
+  const rows = BUTTON_STATUSES.map(({ status, label }) => [
+    {
+      text: status === application.status ? `✓ ${label}` : label,
+      callback_data: `st:${id}:${status}${ctx}`,
+    },
+  ]);
+  if (application.status !== "new") {
+    rows.push([{ text: "Вернуть в новые", callback_data: `st:${id}:new${ctx}` }]);
+  }
+  rows.push([{ text: "Назад", callback_data: `op:${id}${ctx}` }]);
+
+  return {
+    text: [
+      `<b>Статус: ${escapeHtml(application.name)}</b>`,
+      "",
+      `Сейчас: ${statusWithWho(application.status, application.handledBy)}${
+        application.handledBy && application.handledAt ? ` (${formatDate(application.handledAt)})` : ""
+      }`,
+    ].join("\n"),
+    markup: { inline_keyboard: rows },
+  };
+}
+
+// Экран «Финансы» (открывается с карточки, только владелец): стоимость и
+// расходы вместе, чтобы не занимать в карточке два ряда
+async function financeMenuView(id: string, back?: KeyboardBack): Promise<View | null> {
+  const application = await prisma.application.findUnique({
+    where: { id },
+    select: { name: true, price: true },
+  });
+  if (!application) return null;
+
+  const totals = expenseTotals(
+    await prisma.applicationExpense.findMany({
+      where: { applicationId: id },
+      select: { kind: true, amount: true },
+    }),
+  );
+  const remainder = application.price !== null ? application.price - totals.total : null;
+
+  const ctx = ctxOf(back);
+  return {
+    text: [
+      `<b>Финансы: ${escapeHtml(application.name)}</b>`,
+      "",
+      `Стоимость: ${application.price ? formatRub(application.price) : "не указана"}`,
+      `Расход: ${formatRub(totals.total)}`,
+      remainder !== null ? `<b>Заказ − расход: ${formatRub(remainder)}</b>` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    markup: {
+      inline_keyboard: [
+        [
+          {
+            text: application.price ? `Стоимость: ${formatRub(application.price)}` : "Указать стоимость",
+            callback_data: `pr:${id}${ctx}`,
+          },
+        ],
+        [
+          {
+            text: totals.total ? `Расходы: ${formatRub(totals.total)}` : "Добавить расход",
+            callback_data: `eo:${id}${ctx}`,
+          },
+        ],
+        [{ text: "Назад", callback_data: `op:${id}${ctx}` }],
+      ],
+    },
   };
 }
 
@@ -1312,6 +1393,31 @@ export async function handleCallback(query: IncomingCallback) {
     case "op": {
       const [id, filter, page] = rest;
       const view = id ? await cardView(id, role, backFrom(filter, page)) : null;
+      if (!view) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      await edit(chatId, messageId, view);
+      break;
+    }
+
+    // sm:<id>:<filter>:<page> — экран смены статуса
+    case "sm": {
+      const [id, filter, page] = rest;
+      const view = id ? await statusMenuView(id, backFrom(filter, page)) : null;
+      if (!view) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      await edit(chatId, messageId, view);
+      break;
+    }
+
+    // fn:<id>:<filter>:<page> — экран «Финансы» (только владелец)
+    case "fn": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      const view = id ? await financeMenuView(id, backFrom(filter, page)) : null;
       if (!view) {
         await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
         return;

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { formatRub } from "@/lib/money";
-import type { ApplicationStatus } from "@/types/application";
+import { APPLICATION_STATUS_LABELS, type ApplicationStatus } from "@/types/application";
 
 const TELEGRAM_TIMEOUT_MS = 8000;
 
@@ -70,10 +70,8 @@ export function buildKeyboard(
     back?: KeyboardBack;
     canDelete?: boolean;
     notesCount?: number;
-    // Кнопка стоимости (только владельцу): undefined — не показывать, null — стоимость не задана
-    price?: number | null;
-    // Кнопка расходов (только владельцу): undefined — не показывать
-    expenses?: number;
+    // Кнопка «Финансы» (стоимость + расходы, только владельцу): undefined — не показывать
+    finance?: { price: number | null; expenses: number };
   } = {},
 ) {
   const rows: { text: string; url?: string; callback_data?: string }[][] = [];
@@ -93,18 +91,27 @@ export function buildKeyboard(
     ? `:${options.back?.filter ?? "s"}:${options.back?.page ?? 0}`
     : "";
 
-  rows.push(
-    BUTTON_STATUSES.map(({ status, label }) => ({
-      text: status === currentStatus ? `✓ ${label}` : label,
-      callback_data: `st:${app.id}:${status}${ctx}`,
-    })),
-  );
+  if (options.card) {
+    // В карточке статус — один пункт меню, а не ряд кнопок: открывает отдельный
+    // экран с вариантами (см. случай "sm" в боте)
+    const statusText = currentStatus
+      ? (APPLICATION_STATUS_LABELS[currentStatus as ApplicationStatus] ?? currentStatus)
+      : "—";
+    rows.push([{ text: `Статус: ${statusText}`, callback_data: `sm:${app.id}${ctx}` }]);
+  } else {
+    rows.push(
+      BUTTON_STATUSES.map(({ status, label }) => ({
+        text: status === currentStatus ? `✓ ${label}` : label,
+        callback_data: `st:${app.id}:${status}${ctx}`,
+      })),
+    );
 
-  // Отмена случайного нажатия: вернуть заявку в «новые»
-  if (currentStatus && currentStatus !== "new") {
-    rows.push([
-      { text: "Вернуть в новые", callback_data: `st:${app.id}:new${ctx}` },
-    ]);
+    // Отмена случайного нажатия: вернуть заявку в «новые»
+    if (currentStatus && currentStatus !== "new") {
+      rows.push([
+        { text: "Вернуть в новые", callback_data: `st:${app.id}:new${ctx}` },
+      ]);
+    }
   }
 
   if (options.card) {
@@ -117,20 +124,14 @@ export function buildKeyboard(
       },
     ]);
 
-    if (options.price !== undefined) {
+    if (options.finance) {
+      const parts: string[] = [];
+      if (options.finance.price) parts.push(formatRub(options.finance.price));
+      if (options.finance.expenses) parts.push(`расход ${formatRub(options.finance.expenses)}`);
       rows.push([
         {
-          text: options.price ? `Стоимость: ${formatRub(options.price)}` : "Указать стоимость",
-          callback_data: `pr:${app.id}${ctx}`,
-        },
-      ]);
-    }
-
-    if (options.expenses !== undefined) {
-      rows.push([
-        {
-          text: options.expenses ? `Расходы: ${formatRub(options.expenses)}` : "Добавить расход",
-          callback_data: `eo:${app.id}${ctx}`,
+          text: parts.length ? `Финансы: ${parts.join(" · ")}` : "Финансы",
+          callback_data: `fn:${app.id}${ctx}`,
         },
       ]);
     }
