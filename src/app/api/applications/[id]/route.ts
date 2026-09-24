@@ -8,6 +8,7 @@ import { MAX_PRICE } from "@/lib/money";
 export const runtime = "nodejs";
 
 const STATUSES = ["new", "in_progress", "done", "rejected"];
+const MAX_ORDER_NUMBER_LENGTH = 40;
 
 // PATCH /api/applications/:id — смена статуса и/или стоимости
 export async function PATCH(
@@ -53,6 +54,22 @@ export async function PATCH(
       return NextResponse.json({ error: "Некорректная стоимость" }, { status: 400 });
     }
     data.price = price || null;
+  }
+
+  // Номер заказа: произвольный текст; пустая строка или null — убрать
+  if ("orderNumber" in body) {
+    const raw = body.orderNumber;
+    if (raw !== null && typeof raw !== "string") {
+      return NextResponse.json({ error: "Некорректный номер заказа" }, { status: 400 });
+    }
+    const trimmed = raw?.trim() ?? "";
+    if (trimmed.length > MAX_ORDER_NUMBER_LENGTH) {
+      return NextResponse.json(
+        { error: `Номер заказа не длиннее ${MAX_ORDER_NUMBER_LENGTH} символов` },
+        { status: 400 },
+      );
+    }
+    data.orderNumber = trimmed || null;
   }
 
   if (Object.keys(data).length === 0) {

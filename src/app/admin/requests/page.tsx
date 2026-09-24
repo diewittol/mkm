@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ApplicationForm } from "@/components/admin/ApplicationForm";
 import { ApplicationNotes } from "@/components/admin/ApplicationNotes";
 import { ApplicationPrice } from "@/components/admin/ApplicationPrice";
+import { ApplicationOrderNumber } from "@/components/admin/ApplicationOrderNumber";
 import { ApplicationExpenses } from "@/components/admin/ApplicationExpenses";
 import { MoneyStats } from "@/components/admin/MoneyStats";
 import { formatRub } from "@/lib/money";
@@ -28,6 +29,7 @@ interface ApplicationFromApi {
   source: string;
   price: number | null;
   expenseTotal: number;
+  orderNumber: string | null;
   _count?: { notes: number };
   product: { id: string; name: string; slug: string } | null;
 }
@@ -192,6 +194,7 @@ export default function AdminRequestsPage() {
           <table className="table-stack-xl w-full">
             <thead className="border-b border-border bg-background/50">
               <tr className="text-left text-xs font-medium uppercase tracking-wider text-text/50">
+                <th className="px-5 py-3">№ заказа</th>
                 <th className="px-5 py-3">Имя</th>
                 <th className="px-5 py-3">Телефон</th>
                 <th className="px-5 py-3">Товар / тема</th>
@@ -205,7 +208,7 @@ export default function AdminRequestsPage() {
               {isLoading ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-5 py-16 text-center text-sm text-text/60"
                   >
                     Загрузка…
@@ -214,7 +217,7 @@ export default function AdminRequestsPage() {
               ) : filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-5 py-16 text-center text-sm text-text/60"
                   >
                     Заявок нет
@@ -226,6 +229,9 @@ export default function AdminRequestsPage() {
                     key={app.id}
                     className="border-b border-border last:border-0 hover:bg-background/50"
                   >
+                    <td className="px-5 py-3 text-sm text-text/70" data-label="№ заказа">
+                      {app.orderNumber ?? "—"}
+                    </td>
                     <td className="px-5 py-3">
                       <div>
                         <span className="font-medium text-text">{app.name}</span>
@@ -320,6 +326,18 @@ export default function AdminRequestsPage() {
       <Modal isOpen={!!viewing} onClose={() => setViewing(null)} title="Заявка">
         {viewing && (
           <div className="space-y-5">
+            <ApplicationOrderNumber
+              key={viewing.id}
+              applicationId={viewing.id}
+              orderNumber={viewing.orderNumber}
+              onSaved={(orderNumber) => {
+                setApplications((prev) =>
+                  prev.map((a) => (a.id === viewing.id ? { ...a, orderNumber } : a)),
+                );
+                setViewing((prev) => (prev && prev.id === viewing.id ? { ...prev, orderNumber } : prev));
+              }}
+            />
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-text/50">

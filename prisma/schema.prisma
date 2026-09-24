@@ -96,6 +96,9 @@ model Application {
   // Стоимость заказа в рублях (целое число); вписывает админ, клиенту не показывается
   price Int?
 
+  // Номер заказа (произвольный текст, например из 1С или в бумажном учёте); вписывает админ
+  orderNumber String?
+
   notes    ApplicationNote[]
   expenses ApplicationExpense[]
 
