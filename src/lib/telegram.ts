@@ -23,6 +23,7 @@ export interface ApplicationForTelegram {
   phone: string;
   message?: string | null;
   productName?: string | null;
+  orderNumber?: string | null;
 }
 
 export interface KeyboardBack {
@@ -43,7 +44,13 @@ function toWhatsappNumber(phone: string): string | null {
 
 export function buildApplicationText(
   app: ApplicationForTelegram,
-  options: { title?: string; statusNote?: string; price?: number | null } = {},
+  options: {
+    title?: string;
+    statusNote?: string;
+    price?: number | null;
+    // Расход на заказ (только владельцу): undefined — не показывать ни расход, ни «заказ − расход»
+    expenses?: number;
+  } = {},
 ): string {
   const lines = [
     `<b>${escapeHtml(options.title ?? "Новая заявка с сайта")}</b>`,
@@ -51,9 +58,20 @@ export function buildApplicationText(
     `Имя: ${escapeHtml(app.name)}`,
     `Телефон: ${escapeHtml(app.phone)}`,
   ];
+  if (app.orderNumber) lines.push(`№ заказа: ${escapeHtml(app.orderNumber)}`);
   if (app.productName) lines.push(`Изделие: ${escapeHtml(app.productName)}`);
   if (app.message) lines.push("", escapeHtml(app.message));
-  if (options.price) lines.push("", `Стоимость: <b>${formatRub(options.price)}</b>`);
+
+  const financeLines: string[] = [];
+  if (options.price) financeLines.push(`Стоимость: <b>${formatRub(options.price)}</b>`);
+  if (options.expenses) financeLines.push(`Расход: ${formatRub(options.expenses)}`);
+  if (options.expenses !== undefined && (options.price || options.expenses)) {
+    financeLines.push(
+      `Заказ − расход: <b>${formatRub((options.price ?? 0) - options.expenses)}</b>`,
+    );
+  }
+  if (financeLines.length) lines.push("", ...financeLines);
+
   if (options.statusNote) {
     lines.push("", `<b>${escapeHtml(options.statusNote)}</b>`);
   }

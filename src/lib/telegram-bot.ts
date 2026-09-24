@@ -241,6 +241,7 @@ async function cardView(
     phone: application.phone,
     message: application.message,
     productName: application.product?.name ?? null,
+    orderNumber: application.orderNumber,
   };
 
   const expenseSum =
@@ -259,6 +260,7 @@ async function cardView(
         application.source === "manual" ? " (вручную)" : ""
       }`,
       price: role === "owner" ? application.price : undefined,
+      expenses: expenseSum,
       statusNote:
         note ??
         `Статус: ${statusWithWho(application.status, application.handledBy)}${
@@ -1386,6 +1388,7 @@ export async function handleCallback(query: IncomingCallback) {
             phone: application.phone,
             message: application.message,
             productName: application.product?.name ?? null,
+            orderNumber: application.orderNumber,
           };
           await editMessage(
             chatId,
