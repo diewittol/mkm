@@ -22,7 +22,7 @@ export const ApplicationForm = ({ onSubmit, onCancel }: ApplicationFormProps) =>
     formState: { errors, isSubmitting },
   } = useForm<ManualApplicationValues>({
     resolver: zodResolver(manualApplicationSchema),
-    defaultValues: { name: "", phone: "", message: "", status: "in_progress" },
+    defaultValues: { name: "", phone: "", message: "", status: "new" },
   });
 
   return (
@@ -83,8 +83,8 @@ export const ApplicationForm = ({ onSubmit, onCancel }: ApplicationFormProps) =>
           className="w-full rounded-lg border border-border bg-white px-4 py-3 text-sm text-text outline-none transition focus:border-primary"
           {...register("status")}
         >
-          <option value="in_progress">В работе (клиент уже у нас)</option>
           <option value="new">Новая</option>
+          <option value="in_progress">В работе (клиент уже у нас)</option>
         </select>
       </div>
 

@@ -96,7 +96,8 @@ model Application {
   // Стоимость заказа в рублях (целое число); вписывает админ, клиенту не показывается
   price Int?
 
-  notes ApplicationNote[]
+  notes    ApplicationNote[]
+  expenses ApplicationExpense[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -177,6 +178,8 @@ model TelegramDraft {
   applicationId String?
   // Идентификатор текущего сеанса заметок: всё присланное за сеанс — одна заметка
   noteBatch     String?
+  // Режим «расход»: какой вид расхода ждём следующим сообщением (material | ready)
+  expenseKind   String?
   updatedAt DateTime @updatedAt
 }
 
@@ -205,6 +208,22 @@ model ApplicationNote {
   // Записи одного сеанса добавления (текст + фото + голосовые) показываются
   // как одна заметка. У старых записей пусто — каждая сама по себе.
   batchId       String?
+  createdAt     DateTime @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+}
+
+// Расход на заказ: закупка материала. kind — material (материал, который
+// обрабатываем сами, идёт в наценку) или ready (готовое изделие/деталь без
+// наценки: столешница, готовый фасад). Можно добавлять сколько угодно раз,
+// суммы складываются.
+model ApplicationExpense {
+  id            String   @id @default(cuid())
+  applicationId String
+  kind          String // material | ready
+  amount        Int // рубли
   createdAt     DateTime @default(now())
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)

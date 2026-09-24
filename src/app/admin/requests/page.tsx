@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ApplicationForm } from "@/components/admin/ApplicationForm";
 import { ApplicationNotes } from "@/components/admin/ApplicationNotes";
 import { ApplicationPrice } from "@/components/admin/ApplicationPrice";
+import { ApplicationExpenses } from "@/components/admin/ApplicationExpenses";
 import { MoneyStats } from "@/components/admin/MoneyStats";
 import { formatRub } from "@/lib/money";
 import type { ManualApplicationValues } from "@/lib/schemas";
@@ -400,6 +401,8 @@ export default function AdminRequestsPage() {
                 setViewing((prev) => (prev && prev.id === viewing.id ? { ...prev, price } : prev));
               }}
             />
+
+            <ApplicationExpenses key={viewing.id} applicationId={viewing.id} price={viewing.price} />
 
             <div className="border-t border-border pt-5">
               <p className="text-xs font-medium uppercase tracking-wider text-text/50">

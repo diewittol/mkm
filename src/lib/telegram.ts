@@ -72,6 +72,8 @@ export function buildKeyboard(
     notesCount?: number;
     // Кнопка стоимости (только владельцу): undefined — не показывать, null — стоимость не задана
     price?: number | null;
+    // Кнопка расходов (только владельцу): undefined — не показывать
+    expenses?: number;
   } = {},
 ) {
   const rows: { text: string; url?: string; callback_data?: string }[][] = [];
@@ -120,6 +122,15 @@ export function buildKeyboard(
         {
           text: options.price ? `Стоимость: ${formatRub(options.price)}` : "Указать стоимость",
           callback_data: `pr:${app.id}${ctx}`,
+        },
+      ]);
+    }
+
+    if (options.expenses !== undefined) {
+      rows.push([
+        {
+          text: options.expenses ? `Расходы: ${formatRub(options.expenses)}` : "Добавить расход",
+          callback_data: `eo:${app.id}${ctx}`,
         },
       ]);
     }

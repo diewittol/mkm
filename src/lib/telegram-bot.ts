@@ -5,12 +5,20 @@ import { parsePhone } from "@/lib/phone";
 import { groupNotes } from "@/lib/note-groups";
 import { formatRub, parsePrice } from "@/lib/money";
 import {
+  expenseTotals,
   formatMonth,
   monthlyStats,
   mskYearMonth,
   periodStats,
+  type ExpenseKind,
   type Totals,
 } from "@/lib/order-stats";
+import {
+  EXPENSE_KIND_LABELS,
+  addExpense,
+  deleteExpense,
+  isExpenseKind,
+} from "@/lib/order-expenses";
 import {
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
@@ -232,6 +240,16 @@ async function cardView(
     productName: application.product?.name ?? null,
   };
 
+  const expenseSum =
+    role === "owner"
+      ? expenseTotals(
+          await prisma.applicationExpense.findMany({
+            where: { applicationId: id },
+            select: { kind: true, amount: true },
+          }),
+        ).total
+      : undefined;
+
   return {
     text: buildApplicationText(app, {
       title: `Заявка от ${formatDate(application.createdAt)}${
@@ -252,6 +270,7 @@ async function cardView(
       canDelete: role === "owner",
       notesCount: application._count.notes,
       price: role === "owner" ? application.price : undefined,
+      expenses: expenseSum,
     }),
   };
 }
@@ -521,6 +540,73 @@ async function monthsView(): Promise<View> {
   };
 }
 
+// --- Расходы на заказ (только владелец) --------------------------------------
+
+const EXPENSE_TTL_MS = 10 * 60 * 1000;
+const EXPENSES_DELETE_LIST = 10;
+
+async function expensesView(id: string, back?: KeyboardBack): Promise<View | null> {
+  const application = await prisma.application.findUnique({
+    where: { id },
+    select: { name: true, price: true },
+  });
+  if (!application) return null;
+
+  const expenses = await prisma.applicationExpense.findMany({ where: { applicationId: id } });
+  const totals = expenseTotals(expenses);
+  const remainder = application.price !== null ? application.price - totals.total : null;
+
+  const lines = [
+    `<b>Расходы: ${escapeHtml(application.name)}</b>`,
+    "",
+    `Материалы: ${formatRub(totals.material)}`,
+    `Готовые: ${formatRub(totals.ready)}`,
+    `Расход всего: ${formatRub(totals.total)}`,
+    "",
+    remainder === null
+      ? "Стоимость заказа не указана."
+      : `<b>Заказ − расход: ${formatRub(remainder)}</b>`,
+  ];
+
+  const ctx = ctxOf(back);
+  const rows: { text: string; callback_data: string }[][] = [
+    [{ text: "+ Материалы (в наценку)", callback_data: `ea:${id}:material${ctx}` }],
+    [{ text: "+ Готовые (без наценки)", callback_data: `ea:${id}:ready${ctx}` }],
+  ];
+  if (expenses.length > 0) {
+    rows.push([{ text: "Удалить расход", callback_data: `ed:${id}${ctx}` }]);
+  }
+  rows.push(...noteNavRows(id, back, false));
+
+  return { text: lines.join("\n"), markup: { inline_keyboard: rows } };
+}
+
+async function deleteExpenseListView(id: string, back?: KeyboardBack): Promise<View | null> {
+  const expenses = await prisma.applicationExpense.findMany({
+    where: { applicationId: id },
+    orderBy: { createdAt: "desc" },
+    take: EXPENSES_DELETE_LIST,
+  });
+  if (expenses.length === 0) return expensesView(id, back);
+
+  const ctx = ctxOf(back);
+  const rows = expenses.map((expense) => [
+    {
+      text: `${formatDate(expense.createdAt)} · ${EXPENSE_KIND_LABELS[expense.kind as ExpenseKind]} · ${formatRub(expense.amount)}`.slice(
+        0,
+        60,
+      ),
+      callback_data: `eq:${expense.id}${ctx}`,
+    },
+  ]);
+  rows.push([{ text: "Назад", callback_data: `eo:${id}${ctx}` }]);
+
+  return {
+    text: "<b>Какой расход удалить?</b>",
+    markup: { inline_keyboard: rows },
+  };
+}
+
 async function searchView(query: string): Promise<View> {
   const q = query.trim().toLowerCase();
   let digits = q.replace(/\D/g, "");
@@ -758,8 +844,8 @@ function confirmView(draft: {
     markup: {
       inline_keyboard: [
         [
-          { text: "Создать: в работе", callback_data: "ad:w" },
           { text: "Создать: новая", callback_data: "ad:n" },
+          { text: "Создать: в работе", callback_data: "ad:w" },
         ],
         CANCEL_ROW,
       ],
@@ -1032,6 +1118,30 @@ export async function handleMessage(msg: IncomingMessage) {
       if (updated.count === 0) return sendMessage(chatId, "Заявка не найдена (возможно, удалена).");
 
       const view = await cardView(draft.applicationId, role);
+      if (view) await send(chatId, view);
+      return;
+    }
+
+    // Владелец вводит сумму расхода
+    if (
+      role === "owner" &&
+      draft?.step === "expense" &&
+      draft.applicationId &&
+      isExpenseKind(draft.expenseKind) &&
+      Date.now() - draft.updatedAt.getTime() < EXPENSE_TTL_MS
+    ) {
+      const amount = parsePrice(trimmed);
+      if (!amount) {
+        return sendMessage(
+          chatId,
+          "Не понял сумму. Отправьте число в рублях, больше 0, например 15000. /cancel отменяет.",
+        );
+      }
+      const applicationId = draft.applicationId;
+      await addExpense(applicationId, draft.expenseKind, amount);
+      await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+
+      const view = await expensesView(applicationId);
       if (view) await send(chatId, view);
       return;
     }
@@ -1698,6 +1808,127 @@ export async function handleCallback(query: IncomingCallback) {
       if (view) await edit(chatId, messageId, view);
       else await editMessage(chatId, messageId, "Отменено.");
       break;
+    }
+
+    // eo:<id>:<filter>:<page> — расходы на заказ
+    case "eo": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      const view = id ? await expensesView(id, backFrom(filter, page)) : null;
+      if (!view) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      await edit(chatId, messageId, view);
+      break;
+    }
+
+    // ea:<id>:<kind>:<filter>:<page> — ввести сумму расхода следующим сообщением
+    case "ea": {
+      if (await ownerOnly()) return;
+      const [id, kind, filter, page] = rest;
+      const application =
+        id && isExpenseKind(kind)
+          ? await prisma.application.findUnique({ where: { id }, select: { name: true } })
+          : null;
+      if (!id || !isExpenseKind(kind) || !application) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      const userId = String(query.from.id);
+      await prisma.telegramDraft.upsert({
+        where: { chatId: userId },
+        create: { chatId: userId, step: "expense", applicationId: id, expenseKind: kind },
+        update: {
+          step: "expense",
+          applicationId: id,
+          expenseKind: kind,
+          noteBatch: null,
+          name: null,
+          phone: null,
+          message: null,
+        },
+      });
+      const ctx = ctxOf(backFrom(filter, page));
+      await sendMessage(
+        chatId,
+        `<b>${EXPENSE_KIND_LABELS[kind]}: ${escapeHtml(application.name)}</b>\n\nОтправьте сумму в рублях, например 15000. Чтобы добавить ещё один расход, нажмите на нужную кнопку заново.`,
+        { inline_keyboard: [[{ text: "Отмена", callback_data: `ec:${id}${ctx}` }]] },
+      );
+      break;
+    }
+
+    // ec:<id>:<filter>:<page> — отмена ввода расхода
+    case "ec": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      await prisma.telegramDraft.deleteMany({
+        where: { chatId: String(query.from.id), step: "expense" },
+      });
+      const view = id ? await expensesView(id, backFrom(filter, page)) : null;
+      if (view) await edit(chatId, messageId, view);
+      else await editMessage(chatId, messageId, "Отменено.");
+      break;
+    }
+
+    // ed:<id>:<filter>:<page> — выбрать расход для удаления
+    case "ed": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      const view = id ? await deleteExpenseListView(id, backFrom(filter, page)) : null;
+      if (!view) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      await edit(chatId, messageId, view);
+      break;
+    }
+
+    // eq:<expenseId>:<filter>:<page> — подтверждение удаления расхода
+    case "eq": {
+      if (await ownerOnly()) return;
+      const [expenseId, filter, page] = rest;
+      const expense = expenseId
+        ? await prisma.applicationExpense.findUnique({ where: { id: expenseId } })
+        : null;
+      if (!expense) {
+        await answerCallback(query.id, "Расход уже удалён");
+        return;
+      }
+      const ctx = ctxOf(backFrom(filter, page));
+      await edit(chatId, messageId, {
+        text: [
+          "<b>Удалить этот расход?</b>",
+          `${formatDate(expense.createdAt)} · ${EXPENSE_KIND_LABELS[expense.kind as ExpenseKind]} · ${formatRub(expense.amount)}`,
+        ].join("\n\n"),
+        markup: {
+          inline_keyboard: [
+            [
+              { text: "Да, удалить", callback_data: `ez:${expense.id}${ctx}` },
+              { text: "Отмена", callback_data: `ed:${expense.applicationId}${ctx}` },
+            ],
+          ],
+        },
+      });
+      break;
+    }
+
+    // ez:<expenseId>:<filter>:<page> — удалить расход
+    case "ez": {
+      if (await ownerOnly()) return;
+      const [expenseId, filter, page] = rest;
+      const expense = expenseId
+        ? await prisma.applicationExpense.findUnique({ where: { id: expenseId } })
+        : null;
+      if (!expense) {
+        await answerCallback(query.id, "Расход уже удалён");
+        return;
+      }
+      await deleteExpense(expense.applicationId, expense.id);
+      const view = await expensesView(expense.applicationId, backFrom(filter, page));
+      if (view) await edit(chatId, messageId, view);
+      await answerCallback(query.id, "Расход удалён");
+      return;
     }
 
     // ac — раздел «Доступ»

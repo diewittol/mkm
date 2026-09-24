@@ -114,3 +114,28 @@ export function mskYearMonth(now: Date) {
   const { year, month } = mskParts(now);
   return { year, month };
 }
+
+// --- Расходы на заказ --------------------------------------------------------
+
+export type ExpenseKind = "material" | "ready";
+
+export interface ExpenseRow {
+  kind: string;
+  amount: number;
+}
+
+export interface ExpenseTotals {
+  material: number;
+  ready: number;
+  total: number;
+}
+
+export function expenseTotals(rows: ExpenseRow[]): ExpenseTotals {
+  let material = 0;
+  let ready = 0;
+  for (const row of rows) {
+    if (row.kind === "material") material += row.amount;
+    else if (row.kind === "ready") ready += row.amount;
+  }
+  return { material, ready, total: material + ready };
+}
