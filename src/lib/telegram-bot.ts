@@ -7,6 +7,8 @@ import { formatRub, parsePrice } from "@/lib/money";
 import {
   expenseTotals,
   formatMonth,
+  hasMargin,
+  margin,
   monthlyStats,
   mskYearMonth,
   periodStats,
@@ -562,14 +564,29 @@ function totalsLines(totals: Totals): string[] {
     lines.push(`Сумма: <b>${formatRub(totals.sum)}</b>, средний чек ${formatRub(average)}`);
     lines.push(`Выполнено: ${totals.doneCount} на ${formatRub(totals.doneSum)}`);
   }
+  if (totals.expenses > 0) {
+    lines.push(`Расходы: ${formatRub(totals.expenses)}`);
+  }
+  if (hasMargin(totals)) {
+    lines.push(`<b>Прибыль: ${formatRub(margin(totals))}</b>`);
+  }
   return lines;
 }
 
 async function moneyRows() {
-  return prisma.application.findMany({
+  const applications = await prisma.application.findMany({
     where: { status: { not: "rejected" } },
-    select: { createdAt: true, status: true, price: true },
+    select: {
+      createdAt: true,
+      status: true,
+      price: true,
+      expenses: { select: { amount: true } },
+    },
   });
+  return applications.map(({ expenses, ...rest }) => ({
+    ...rest,
+    expenses: expenses.reduce((sum, e) => sum + e.amount, 0),
+  }));
 }
 
 async function moneyView(): Promise<View> {
@@ -582,7 +599,7 @@ async function moneyView(): Promise<View> {
 
   const lines = [
     "<b>Стоимость заказов</b>",
-    "<i>По дате заявки, без отклонённых. «Выполнено»: статус «Обработана».</i>",
+    "<i>По дате заявки, без отклонённых. «Выполнено»: статус «Обработана», «Прибыль»: стоимость минус расход.</i>",
     "",
     ...block("Сегодня", stats.today),
     ...block(`Этот месяц (${formatMonth(currentYear, currentMonth)})`, stats.month),
@@ -612,7 +629,9 @@ async function monthsView(): Promise<View> {
   for (const { year, month, totals } of months) {
     const sum = totals.priced > 0 ? `${formatRub(totals.sum)}` : "без стоимости";
     const done = totals.priced > 0 ? `, выполнено ${formatRub(totals.doneSum)}` : "";
-    lines.push(`<b>${formatMonth(year, month)}</b>: ${totals.count} заявок, ${sum}${done}`);
+    const expenses = totals.expenses > 0 ? `, расход ${formatRub(totals.expenses)}` : "";
+    const profit = hasMargin(totals) ? `, прибыль ${formatRub(margin(totals))}` : "";
+    lines.push(`<b>${formatMonth(year, month)}</b>: ${totals.count} заявок, ${sum}${done}${expenses}${profit}`);
   }
 
   return {

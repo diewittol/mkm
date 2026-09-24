@@ -22,11 +22,18 @@ export async function GET() {
         select: { id: true, name: true, slug: true },
       },
       _count: { select: { notes: true } },
+      expenses: { select: { amount: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json(applications);
+  // Отдаём готовую сумму расходов, а не список записей — для сводки на странице
+  const withExpenseTotal = applications.map(({ expenses, ...app }) => ({
+    ...app,
+    expenseTotal: expenses.reduce((sum, e) => sum + e.amount, 0),
+  }));
+
+  return NextResponse.json(withExpenseTotal);
 }
 
 // POST /api/applications — новая заявка с сайта

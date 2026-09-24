@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { formatRub } from "@/lib/money";
 import {
   formatMonth,
+  hasMargin,
+  margin,
   monthlyStats,
   mskYearMonth,
   periodStats,
@@ -15,6 +17,7 @@ interface StatApplication {
   createdAt: string;
   status: string;
   price: number | null;
+  expenseTotal: number;
 }
 
 const PeriodCard = ({ title, totals }: { title: string; totals: Totals }) => {
@@ -39,6 +42,12 @@ const PeriodCard = ({ title, totals }: { title: string; totals: Totals }) => {
             <p>Средний чек: {formatRub(average)}</p>
           </>
         )}
+        {totals.expenses > 0 && <p>Расходы: {formatRub(totals.expenses)}</p>}
+        {hasMargin(totals) && (
+          <p className={margin(totals) < 0 ? "font-medium text-red-600" : "font-medium text-text"}>
+            Прибыль: {formatRub(margin(totals))}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -56,6 +65,7 @@ export const MoneyStats = ({ applications }: { applications: StatApplication[] }
         createdAt: new Date(a.createdAt),
         status: a.status,
         price: a.price,
+        expenses: a.expenseTotal,
       })),
     [applications],
   );
@@ -75,7 +85,8 @@ export const MoneyStats = ({ applications }: { applications: StatApplication[] }
         <div>
           <h2 className="font-montserrat text-lg font-bold text-text">Стоимость заказов</h2>
           <p className="mt-1 text-xs text-text/50">
-            По дате заявки, без отклонённых. «Выполнено» — статус «Обработана».
+            По дате заявки, без отклонённых. «Выполнено» — статус «Обработана», «Прибыль» —
+            стоимость минус расход.
           </p>
         </div>
         <button
@@ -108,12 +119,14 @@ export const MoneyStats = ({ applications }: { applications: StatApplication[] }
                   <th className="px-5 py-3">Заявок</th>
                   <th className="px-5 py-3">Сумма</th>
                   <th className="px-5 py-3">Выполнено</th>
+                  <th className="px-5 py-3">Расходы</th>
+                  <th className="px-5 py-3">Прибыль</th>
                 </tr>
               </thead>
               <tbody>
                 {months.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-5 py-8 text-center text-sm text-text/60">
+                    <td colSpan={6} className="px-5 py-8 text-center text-sm text-text/60">
                       Заявок нет
                     </td>
                   </tr>
@@ -136,6 +149,17 @@ export const MoneyStats = ({ applications }: { applications: StatApplication[] }
                         {totals.priced > 0
                           ? `${totals.doneCount} на ${formatRub(totals.doneSum)}`
                           : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3 text-sm text-text/70" data-label="Расходы">
+                        {totals.expenses > 0 ? formatRub(totals.expenses) : "—"}
+                      </td>
+                      <td
+                        className={`whitespace-nowrap px-5 py-3 text-sm font-medium ${
+                          hasMargin(totals) && margin(totals) < 0 ? "text-red-600" : "text-text"
+                        }`}
+                        data-label="Прибыль"
+                      >
+                        {hasMargin(totals) ? formatRub(margin(totals)) : "—"}
                       </td>
                     </tr>
                   ))

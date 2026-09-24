@@ -7,6 +7,8 @@ export interface StatRow {
   createdAt: Date;
   status: string;
   price: number | null;
+  // Сумма расходов на этот заказ (материалы + готовые), если есть
+  expenses?: number;
 }
 
 export interface Totals {
@@ -18,9 +20,18 @@ export interface Totals {
   // Выполненные (статус «Обработана»)
   doneCount: number;
   doneSum: number;
+  // Расходы на заказы за период (материалы + готовые, все заказы, не только с ценой)
+  expenses: number;
 }
 
-const emptyTotals = (): Totals => ({ count: 0, priced: 0, sum: 0, doneCount: 0, doneSum: 0 });
+const emptyTotals = (): Totals => ({
+  count: 0,
+  priced: 0,
+  sum: 0,
+  doneCount: 0,
+  doneSum: 0,
+  expenses: 0,
+});
 
 function add(totals: Totals, row: StatRow) {
   totals.count++;
@@ -32,7 +43,13 @@ function add(totals: Totals, row: StatRow) {
     totals.doneCount++;
     totals.doneSum += row.price ?? 0;
   }
+  totals.expenses += row.expenses ?? 0;
 }
+
+// Прибыль: стоимость минус расход. Показывать имеет смысл, только если
+// известна хотя бы стоимость или расход — иначе это просто «0 − 0»
+export const hasMargin = (totals: Totals) => totals.priced > 0 || totals.expenses > 0;
+export const margin = (totals: Totals) => totals.sum - totals.expenses;
 
 // Год/месяц/день по Москве
 function mskParts(date: Date) {

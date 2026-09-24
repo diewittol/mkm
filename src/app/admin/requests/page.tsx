@@ -27,6 +27,7 @@ interface ApplicationFromApi {
   handledAt: string | null;
   source: string;
   price: number | null;
+  expenseTotal: number;
   _count?: { notes: number };
   product: { id: string; name: string; slug: string } | null;
 }
