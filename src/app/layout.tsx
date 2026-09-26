@@ -21,8 +21,11 @@ export const metadata: Metadata = {
   title: "Мебель на заказ в Адыгее — МКМ",
   description: "Изготовление мебели по индивидуальным размерам для дома и бизнеса",
   openGraph: { type: "website", locale: "ru_RU", siteName: SITE_NAME },
-  // Подтверждение прав на сайт в Яндекс.Вебмастере
-  verification: { yandex: "f1569dd844afe815" },
+  // Подтверждение прав на сайт в Яндекс.Вебмастере и Google Search Console
+  verification: {
+    yandex: "f1569dd844afe815",
+    google: "_xUvpkLAYGDehC5eM19NtowKqG4GKq99aTUuZ8o027I",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
