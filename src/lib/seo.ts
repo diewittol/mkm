@@ -95,7 +95,15 @@ export function breadcrumbLd(items: { name: string; path: string }[]) {
   };
 }
 
-const WEEK_DAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+// Первые две буквы названия дня: «Пн», «пон.», «Суб», «воскр.» -> номер дня недели
+const DAY_PREFIXES = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+const DAY_ALIASES: Record<string, number> = { по: 0, че: 3, пя: 4, су: 5, во: 6 };
+
+function dayIndex(name: string): number {
+  const prefix = name.slice(0, 2).toLowerCase();
+  const direct = DAY_PREFIXES.indexOf(prefix);
+  return direct >= 0 ? direct : (DAY_ALIASES[prefix] ?? -1);
+}
 const SCHEMA_DAYS = [
   "Monday",
   "Tuesday",
@@ -114,8 +122,8 @@ export function parseOpeningHours(text: string | null | undefined) {
   );
   if (!match) return null;
 
-  const from = WEEK_DAYS.indexOf(match[1].slice(0, 2).toLowerCase());
-  const to = WEEK_DAYS.indexOf(match[2].slice(0, 2).toLowerCase());
+  const from = dayIndex(match[1]);
+  const to = dayIndex(match[2]);
   if (from < 0 || to < from) return null;
 
   const pad = (hours: string, minutes: string) => `${hours.padStart(2, "0")}:${minutes}`;
