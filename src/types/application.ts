@@ -1,4 +1,4 @@
-export type ApplicationStatus = "new" | "in_progress" | "done" | "rejected";
+export type ApplicationStatus = "new" | "called" | "in_progress" | "done" | "rejected";
 
 export interface Application {
   id: string;
@@ -14,6 +14,7 @@ export interface Application {
 
 export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   new: "Новая",
+  called: "Отзвонился",
   in_progress: "В работе",
   done: "Обработана",
   rejected: "Отклонена",

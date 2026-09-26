@@ -36,6 +36,7 @@ interface ApplicationFromApi {
 
 const STATUS_STYLES: Record<ApplicationStatus, string> = {
   new: "bg-blue-50 text-blue-700",
+  called: "bg-purple-50 text-purple-700",
   in_progress: "bg-yellow-50 text-yellow-700",
   done: "bg-green-50 text-green-700",
   rejected: "bg-red-50 text-red-700",
@@ -43,6 +44,7 @@ const STATUS_STYLES: Record<ApplicationStatus, string> = {
 
 const STATUS_DOT: Record<ApplicationStatus, string> = {
   new: "bg-blue-500",
+  called: "bg-purple-500",
   in_progress: "bg-yellow-500",
   done: "bg-green-500",
   rejected: "bg-red-500",
@@ -51,6 +53,7 @@ const STATUS_DOT: Record<ApplicationStatus, string> = {
 const STATUS_FILTERS: { value: ApplicationStatus | ""; label: string }[] = [
   { value: "", label: "Все статусы" },
   { value: "new", label: "Новые" },
+  { value: "called", label: "Отзвонился" },
   { value: "in_progress", label: "В работе" },
   { value: "done", label: "Обработанные" },
   { value: "rejected", label: "Отклонённые" },

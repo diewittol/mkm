@@ -6,6 +6,7 @@ const TELEGRAM_TIMEOUT_MS = 8000;
 
 // Статусы, которые можно выставить кнопками в чате (порядок = порядок кнопок)
 export const BUTTON_STATUSES: { status: ApplicationStatus; label: string }[] = [
+  { status: "called", label: "Отзвонился" },
   { status: "in_progress", label: "В работу" },
   { status: "done", label: "Готово" },
   { status: "rejected", label: "Спам" },

@@ -7,7 +7,7 @@ import { MAX_PRICE } from "@/lib/money";
 
 export const runtime = "nodejs";
 
-const STATUSES = ["new", "in_progress", "done", "rejected"];
+const STATUSES = ["new", "called", "in_progress", "done", "rejected"];
 const MAX_ORDER_NUMBER_LENGTH = 40;
 
 // PATCH /api/applications/:id — смена статуса и/или стоимости

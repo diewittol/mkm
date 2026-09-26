@@ -515,11 +515,12 @@ async function statsView(): Promise<View> {
   const startOfDay =
     Math.floor((now + MSK_OFFSET_MS) / DAY_MS) * DAY_MS - MSK_OFFSET_MS;
 
-  const [total, today, week, fresh, inWork, stale] = await Promise.all([
+  const [total, today, week, fresh, called, inWork, stale] = await Promise.all([
     prisma.application.count(),
     prisma.application.count({ where: { createdAt: { gte: new Date(startOfDay) } } }),
     prisma.application.count({ where: { createdAt: { gte: new Date(now - 7 * DAY_MS) } } }),
     prisma.application.count({ where: { status: "new" } }),
+    prisma.application.count({ where: { status: "called" } }),
     prisma.application.count({ where: { status: "in_progress" } }),
     prisma.application.count({
       where: { status: "new", createdAt: { lt: new Date(now - HOUR_MS) } },
@@ -534,6 +535,7 @@ async function statsView(): Promise<View> {
     `Всего: ${total}`,
     "",
     `Новых: ${fresh}`,
+    `Отзвонился: ${called}`,
     `В работе: ${inWork}`,
   ];
   if (stale > 0) lines.push("", `<b>Новых дольше часа: ${stale}</b>`);
