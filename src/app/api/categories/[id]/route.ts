@@ -44,6 +44,7 @@ export async function PATCH(
       slug: body.slug,
       order: body.order,
       description: body.description || null,
+      seoText: body.seoText === undefined ? undefined : body.seoText || null,
       image: body.image || null,
     },
   });

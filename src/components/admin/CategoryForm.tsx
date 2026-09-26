@@ -38,6 +38,7 @@ export const CategoryForm = ({
       slug: "",
       order: 0,
       description: "",
+      seoText: "",
       image: null,
     },
   });
@@ -52,6 +53,7 @@ export const CategoryForm = ({
         slug: category.slug,
         order: category.order,
         description: category.description ?? "",
+        seoText: category.seoText ?? "",
         image: category.image ?? null,
       });
     } else {
@@ -60,6 +62,7 @@ export const CategoryForm = ({
         slug: "",
         order: 0,
         description: "",
+        seoText: "",
         image: null,
       });
     }
@@ -92,7 +95,7 @@ export const CategoryForm = ({
           Slug (URL)
         </label>
         <div className="flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-3 text-sm focus-within:border-primary">
-          <span className="text-text/40">/catalog?category=</span>
+          <span className="text-text/40">/catalog/category/</span>
           <input
             id="category-slug"
             placeholder="beds"
@@ -119,12 +122,12 @@ export const CategoryForm = ({
           htmlFor="category-description"
           className="mb-2 block text-sm font-medium text-text"
         >
-          Описание
+          Короткое описание
         </label>
         <textarea
           id="category-description"
           rows={3}
-          placeholder="Короткое описание категории для каталога"
+          placeholder="1–2 предложения: показывается под заголовком и в результатах поиска"
           className={`w-full resize-none rounded-lg border bg-white px-4 py-3 text-sm text-text outline-none transition placeholder:text-text/40 focus:border-primary ${
             errors.description ? "border-red-500" : "border-border"
           }`}
@@ -134,6 +137,30 @@ export const CategoryForm = ({
           <p className="mt-1.5 text-xs text-red-500">
             {errors.description.message}
           </p>
+        )}
+      </div>
+
+      <div>
+        <label
+          htmlFor="category-seo-text"
+          className="mb-2 block text-sm font-medium text-text"
+        >
+          Текст для страницы категории (для поиска)
+        </label>
+        <textarea
+          id="category-seo-text"
+          rows={10}
+          placeholder={"Развёрнутый текст на 300–500 слов: из чего делаете, как заказать, сроки, гарантия.\n\nАбзацы разделяйте пустой строкой. Подзаголовок: строка, начинающаяся с «## »."}
+          className={`w-full rounded-lg border bg-white px-4 py-3 text-sm leading-relaxed text-text outline-none transition placeholder:text-text/40 focus:border-primary ${
+            errors.seoText ? "border-red-500" : "border-border"
+          }`}
+          {...register("seoText")}
+        />
+        <p className="mt-1.5 text-xs text-text/40">
+          Показывается на сайте под списком изделий этой категории.
+        </p>
+        {errors.seoText && (
+          <p className="mt-1.5 text-xs text-red-500">{errors.seoText.message}</p>
         )}
       </div>
 

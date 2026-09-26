@@ -44,6 +44,7 @@ export const categoryFormSchema = z.object({
     .max(300, "До 300 символов")
     .optional()
     .or(z.literal("")),
+  seoText: z.string().max(8000, "До 8000 символов").optional().or(z.literal("")),
   image: z.string().nullable().optional(),
 });
 

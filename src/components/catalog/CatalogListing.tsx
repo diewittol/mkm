@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Container } from "@/components/layout/Container";
 import { CategoryFilter } from "@/components/catalog/CategoryFilter";
+import { CategoryText } from "@/components/catalog/CategoryText";
 import { ProductGrid } from "@/components/catalog/ProductGrid";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { prisma } from "@/lib/prisma";
@@ -83,6 +84,8 @@ export async function CatalogListing({ categorySlug }: { categorySlug?: string }
       <div className="mt-8">
         <ProductGrid products={products as never} categoryNameById={categoryNameById} />
       </div>
+
+      {current?.seoText && <CategoryText text={current.seoText} />}
     </Container>
   );
 }

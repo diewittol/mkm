@@ -16,6 +16,8 @@ model Category {
   slug        String  @unique
   image       String?
   description String?
+  // Развёрнутый текст под товарами на странице категории (для поиска), абзацы через пустую строку
+  seoText     String?
   order       Int     @default(0)
 
   products Product[]

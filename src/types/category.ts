@@ -4,5 +4,6 @@ export interface Category {
   slug: string;
   image?: string;
   description?: string;
+  seoText?: string;
   order: number;
 }
