@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { formatRub, parsePrice } from "@/lib/money";
+import { MAX_COMMENT_LENGTH, formatRub, parsePrice } from "@/lib/money";
 import { expenseTotals, type ExpenseKind } from "@/lib/order-stats";
 import { EXPENSE_KIND_LABELS } from "@/lib/order-expenses";
 
@@ -10,6 +10,7 @@ interface ExpenseFromApi {
   id: string;
   kind: string;
   amount: number;
+  comment: string | null;
   createdAt: string;
 }
 
@@ -21,9 +22,10 @@ const KindRow = ({
   onAdd,
 }: {
   kind: ExpenseKind;
-  onAdd: (amount: number) => Promise<void>;
+  onAdd: (amount: number, comment: string) => Promise<void>;
 }) => {
   const [value, setValue] = useState("");
+  const [comment, setComment] = useState("");
   const [isSaving, setSaving] = useState(false);
 
   const handleAdd = async () => {
@@ -34,8 +36,9 @@ const KindRow = ({
     }
     setSaving(true);
     try {
-      await onAdd(parsed);
+      await onAdd(parsed, comment.trim());
       setValue("");
+      setComment("");
     } finally {
       setSaving(false);
     }
@@ -70,6 +73,16 @@ const KindRow = ({
           {isSaving ? "…" : "Добавить"}
         </button>
       </div>
+      <input
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleAdd();
+        }}
+        maxLength={MAX_COMMENT_LENGTH}
+        placeholder="Комментарий (необязательно): на что потратили"
+        className="mt-2 w-full rounded-lg border border-border bg-white px-4 py-2 text-sm text-text outline-none transition placeholder:text-text/40 focus:border-primary"
+      />
     </div>
   );
 };
@@ -95,11 +108,11 @@ export const ApplicationExpenses = ({
       .finally(() => setLoading(false));
   }, [base]);
 
-  const handleAdd = async (kind: ExpenseKind, amount: number) => {
+  const handleAdd = async (kind: ExpenseKind, amount: number, comment: string) => {
     const response = await fetch(base, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, amount }),
+      body: JSON.stringify({ kind, amount, comment }),
     });
     if (!response.ok) {
       alert("Не удалось сохранить расход");
@@ -132,8 +145,8 @@ export const ApplicationExpenses = ({
       ) : (
         <>
           <div className="mt-3 space-y-4">
-            <KindRow kind="material" onAdd={(amount) => handleAdd("material", amount)} />
-            <KindRow kind="ready" onAdd={(amount) => handleAdd("ready", amount)} />
+            <KindRow kind="material" onAdd={(amount, comment) => handleAdd("material", amount, comment)} />
+            <KindRow kind="ready" onAdd={(amount, comment) => handleAdd("ready", amount, comment)} />
           </div>
 
           {expenses.length > 0 && (
@@ -143,8 +156,11 @@ export const ApplicationExpenses = ({
                   key={expense.id}
                   className="flex items-center justify-between gap-2 rounded-lg bg-background/50 px-3 py-1.5 text-sm"
                 >
-                  <span className="text-text/70">
+                  <span className="min-w-0 text-text/70">
                     {formatDate(expense.createdAt)} · {EXPENSE_KIND_LABELS[expense.kind as ExpenseKind]}
+                    {expense.comment && (
+                      <span className="block break-words text-xs text-text/50">{expense.comment}</span>
+                    )}
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-text">{formatRub(expense.amount)}</span>

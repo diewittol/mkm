@@ -13,9 +13,14 @@ export const EXPENSE_KIND_LABELS: Record<ExpenseKind, string> = {
 
 // Расход на заказ: закупка материала. Добавляется сколько угодно раз,
 // суммы по каждому виду складываются.
-export async function addExpense(applicationId: string, kind: ExpenseKind, amount: number) {
+export async function addExpense(
+  applicationId: string,
+  kind: ExpenseKind,
+  amount: number,
+  comment: string | null = null,
+) {
   return prisma.applicationExpense.create({
-    data: { applicationId, kind, amount },
+    data: { applicationId, kind, amount, comment },
   });
 }
 

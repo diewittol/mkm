@@ -136,7 +136,7 @@ export default function AdminSettingsPage() {
             <Input
               id="settings-address"
               label="Основной адрес (для политики конфиденциальности)"
-              placeholder="г. Красноярск, ул. Примерная, 123"
+              placeholder="ст. Ханская, ул. Примерная, 123"
               {...register("address")}
             />
             <p className="mt-1.5 text-xs text-text/50">

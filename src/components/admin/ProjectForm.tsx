@@ -126,7 +126,7 @@ export const ProjectForm = ({
       <Input
         id="project-location"
         label="Локация"
-        placeholder="Красноярск"
+        placeholder="ст. Ханская"
         error={errors.location?.message}
         {...register("location")}
       />

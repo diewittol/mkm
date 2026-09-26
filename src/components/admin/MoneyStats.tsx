@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { formatRub } from "@/lib/money";
+import { formatRub, totalPrice } from "@/lib/money";
 import {
   formatMonth,
   hasMargin,
@@ -18,6 +18,7 @@ interface StatApplication {
   status: string;
   price: number | null;
   expenseTotal: number;
+  extraTotal: number;
 }
 
 const PeriodCard = ({ title, totals }: { title: string; totals: Totals }) => {
@@ -64,7 +65,7 @@ export const MoneyStats = ({ applications }: { applications: StatApplication[] }
       applications.map((a) => ({
         createdAt: new Date(a.createdAt),
         status: a.status,
-        price: a.price,
+        price: totalPrice(a.price, a.extraTotal),
         expenses: a.expenseTotal,
       })),
     [applications],

@@ -23,17 +23,19 @@ export async function GET() {
       },
       _count: { select: { notes: true } },
       expenses: { select: { amount: true } },
+      extras: { select: { amount: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  // Отдаём готовую сумму расходов, а не список записей — для сводки на странице
-  const withExpenseTotal = applications.map(({ expenses, ...app }) => ({
+  // Отдаём готовые суммы расходов и доплат, а не списки записей — для таблицы и сводки
+  const withTotals = applications.map(({ expenses, extras, ...app }) => ({
     ...app,
     expenseTotal: expenses.reduce((sum, e) => sum + e.amount, 0),
+    extraTotal: extras.reduce((sum, e) => sum + e.amount, 0),
   }));
 
-  return NextResponse.json(withExpenseTotal);
+  return NextResponse.json(withTotals);
 }
 
 // POST /api/applications — новая заявка с сайта

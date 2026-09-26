@@ -101,6 +101,7 @@ model Application {
 
   notes    ApplicationNote[]
   expenses ApplicationExpense[]
+  extras   ApplicationExtra[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -227,6 +228,21 @@ model ApplicationExpense {
   applicationId String
   kind          String // material | ready
   amount        Int // рубли
+  comment       String? // на что потратили
+  createdAt     DateTime @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+}
+
+// Доплата к стоимости заказа (непредвиденные расходы и т.п.). Складывается
+// со стоимостью заказа: итоговая стоимость = price + сумма доплат.
+model ApplicationExtra {
+  id            String   @id @default(cuid())
+  applicationId String
+  amount        Int // рубли
+  comment       String?
   createdAt     DateTime @default(now())
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)

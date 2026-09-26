@@ -48,7 +48,10 @@ export function buildApplicationText(
   options: {
     title?: string;
     statusNote?: string;
+    // Итоговая стоимость (с доплатами)
     price?: number | null;
+    // Из неё — доплаты (показываем пометку «в т.ч. доплаты»)
+    extras?: number;
     // Расход на заказ (только владельцу): undefined — не показывать ни расход, ни «заказ − расход»
     expenses?: number;
   } = {},
@@ -64,7 +67,13 @@ export function buildApplicationText(
   if (app.message) lines.push("", escapeHtml(app.message));
 
   const financeLines: string[] = [];
-  if (options.price) financeLines.push(`Стоимость: <b>${formatRub(options.price)}</b>`);
+  if (options.price) {
+    financeLines.push(
+      `Стоимость: <b>${formatRub(options.price)}</b>${
+        options.extras ? ` (в т.ч. доплаты ${formatRub(options.extras)})` : ""
+      }`,
+    );
+  }
   if (options.expenses) financeLines.push(`Расход: ${formatRub(options.expenses)}`);
   if (options.expenses !== undefined && (options.price || options.expenses)) {
     financeLines.push(

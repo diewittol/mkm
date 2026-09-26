@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { createManualApplication } from "@/lib/manual-application";
 import { parsePhone } from "@/lib/phone";
 import { groupNotes } from "@/lib/note-groups";
-import { formatRub, parsePrice } from "@/lib/money";
+import { formatRub, parseAmountWithComment, parsePrice, totalPrice } from "@/lib/money";
+import { addExtra, deleteExtra, sumAmounts } from "@/lib/order-extras";
 import {
   expenseTotals,
   formatMonth,
@@ -254,12 +255,24 @@ async function cardView(
         ).total
       : undefined;
 
+  const extraSum =
+    role === "owner"
+      ? sumAmounts(
+          await prisma.applicationExtra.findMany({
+            where: { applicationId: id },
+            select: { amount: true },
+          }),
+        )
+      : 0;
+  const total = totalPrice(application.price, extraSum);
+
   return {
     text: buildApplicationText(app, {
       title: `Заявка от ${formatDate(application.createdAt)}${
         application.source === "manual" ? " (вручную)" : ""
       }`,
-      price: role === "owner" ? application.price : undefined,
+      price: role === "owner" ? total : undefined,
+      extras: role === "owner" ? extraSum : undefined,
       expenses: expenseSum,
       statusNote:
         note ??
@@ -274,7 +287,7 @@ async function cardView(
       back,
       canDelete: role === "owner",
       notesCount: application._count.notes,
-      finance: role === "owner" ? { price: application.price, expenses: expenseSum ?? 0 } : undefined,
+      finance: role === "owner" ? { price: total, expenses: expenseSum ?? 0 } : undefined,
     }),
   };
 }
@@ -327,7 +340,11 @@ async function financeMenuView(id: string, back?: KeyboardBack): Promise<View | 
       select: { kind: true, amount: true },
     }),
   );
-  const remainder = application.price !== null ? application.price - totals.total : null;
+  const extraSum = sumAmounts(
+    await prisma.applicationExtra.findMany({ where: { applicationId: id }, select: { amount: true } }),
+  );
+  const total = totalPrice(application.price, extraSum);
+  const remainder = total !== null ? total - totals.total : null;
 
   const ctx = ctxOf(back);
   return {
@@ -335,6 +352,8 @@ async function financeMenuView(id: string, back?: KeyboardBack): Promise<View | 
       `<b>Финансы: ${escapeHtml(application.name)}</b>`,
       "",
       `Стоимость: ${application.price ? formatRub(application.price) : "не указана"}`,
+      extraSum ? `Доплаты: ${formatRub(extraSum)}` : "",
+      extraSum && total ? `Итого: ${formatRub(total)}` : "",
       `Расход: ${formatRub(totals.total)}`,
       remainder !== null ? `<b>Заказ − расход: ${formatRub(remainder)}</b>` : "",
     ]
@@ -346,6 +365,12 @@ async function financeMenuView(id: string, back?: KeyboardBack): Promise<View | 
           {
             text: application.price ? `Стоимость: ${formatRub(application.price)}` : "Указать стоимость",
             callback_data: `pr:${id}${ctx}`,
+          },
+        ],
+        [
+          {
+            text: extraSum ? `Доплаты: ${formatRub(extraSum)}` : "Добавить доплату к стоимости",
+            callback_data: `xo:${id}${ctx}`,
           },
         ],
         [
@@ -585,11 +610,13 @@ async function moneyRows() {
       status: true,
       price: true,
       expenses: { select: { amount: true } },
+      extras: { select: { amount: true } },
     },
   });
-  return applications.map(({ expenses, ...rest }) => ({
+  return applications.map(({ expenses, extras, price, ...rest }) => ({
     ...rest,
-    expenses: expenses.reduce((sum, e) => sum + e.amount, 0),
+    price: totalPrice(price, sumAmounts(extras)),
+    expenses: sumAmounts(expenses),
   }));
 }
 
@@ -656,9 +683,16 @@ async function expensesView(id: string, back?: KeyboardBack): Promise<View | nul
   });
   if (!application) return null;
 
-  const expenses = await prisma.applicationExpense.findMany({ where: { applicationId: id } });
+  const expenses = await prisma.applicationExpense.findMany({
+    where: { applicationId: id },
+    orderBy: { createdAt: "asc" },
+  });
   const totals = expenseTotals(expenses);
-  const remainder = application.price !== null ? application.price - totals.total : null;
+  const extraSum = sumAmounts(
+    await prisma.applicationExtra.findMany({ where: { applicationId: id }, select: { amount: true } }),
+  );
+  const total = totalPrice(application.price, extraSum);
+  const remainder = total !== null ? total - totals.total : null;
 
   const lines = [
     `<b>Расходы: ${escapeHtml(application.name)}</b>`,
@@ -671,6 +705,16 @@ async function expensesView(id: string, back?: KeyboardBack): Promise<View | nul
       ? "Стоимость заказа не указана."
       : `<b>Заказ − расход: ${formatRub(remainder)}</b>`,
   ];
+  if (expenses.length > 0) {
+    lines.push("", "<i>Последние:</i>");
+    for (const expense of expenses.slice(-5).reverse()) {
+      lines.push(
+        `${formatDate(expense.createdAt)} · ${expense.kind === "ready" ? "готовые" : "материалы"} · ${formatRub(expense.amount)}${
+          expense.comment ? ` · ${escapeHtml(expense.comment)}` : ""
+        }`,
+      );
+    }
+  }
 
   const ctx = ctxOf(back);
   const rows: { text: string; callback_data: string }[][] = [
@@ -696,10 +740,9 @@ async function deleteExpenseListView(id: string, back?: KeyboardBack): Promise<V
   const ctx = ctxOf(back);
   const rows = expenses.map((expense) => [
     {
-      text: `${formatDate(expense.createdAt)} · ${EXPENSE_KIND_LABELS[expense.kind as ExpenseKind]} · ${formatRub(expense.amount)}`.slice(
-        0,
-        60,
-      ),
+      text: `${formatDate(expense.createdAt)} · ${EXPENSE_KIND_LABELS[expense.kind as ExpenseKind]} · ${formatRub(expense.amount)}${
+        expense.comment ? ` · ${expense.comment}` : ""
+      }`.slice(0, 60),
       callback_data: `eq:${expense.id}${ctx}`,
     },
   ]);
@@ -709,6 +752,74 @@ async function deleteExpenseListView(id: string, back?: KeyboardBack): Promise<V
     text: "<b>Какой расход удалить?</b>",
     markup: { inline_keyboard: rows },
   };
+}
+
+// --- Доплаты к стоимости заказа (только владелец) ----------------------------
+
+async function extrasView(id: string, back?: KeyboardBack): Promise<View | null> {
+  const application = await prisma.application.findUnique({
+    where: { id },
+    select: { name: true, price: true },
+  });
+  if (!application) return null;
+
+  const extras = await prisma.applicationExtra.findMany({
+    where: { applicationId: id },
+    orderBy: { createdAt: "asc" },
+  });
+  const extraSum = sumAmounts(extras);
+  const total = totalPrice(application.price, extraSum);
+
+  const lines = [
+    `<b>Доплаты: ${escapeHtml(application.name)}</b>`,
+    "",
+    `Стоимость заказа: ${application.price ? formatRub(application.price) : "не указана"}`,
+    `Доплаты: ${formatRub(extraSum)}`,
+    `<b>Итого: ${total ? formatRub(total) : "—"}</b>`,
+  ];
+  if (extras.length > 0) {
+    lines.push("", "<i>Последние:</i>");
+    for (const extra of extras.slice(-5).reverse()) {
+      lines.push(
+        `${formatDate(extra.createdAt)} · + ${formatRub(extra.amount)}${
+          extra.comment ? ` · ${escapeHtml(extra.comment)}` : ""
+        }`,
+      );
+    }
+  }
+
+  const ctx = ctxOf(back);
+  const rows: { text: string; callback_data: string }[][] = [
+    [{ text: "+ Доплата", callback_data: `xa:${id}${ctx}` }],
+  ];
+  if (extras.length > 0) {
+    rows.push([{ text: "Удалить доплату", callback_data: `xd:${id}${ctx}` }]);
+  }
+  rows.push([{ text: "Назад", callback_data: `fn:${id}${ctx}` }]);
+
+  return { text: lines.join("\n"), markup: { inline_keyboard: rows } };
+}
+
+async function deleteExtraListView(id: string, back?: KeyboardBack): Promise<View | null> {
+  const extras = await prisma.applicationExtra.findMany({
+    where: { applicationId: id },
+    orderBy: { createdAt: "desc" },
+    take: EXPENSES_DELETE_LIST,
+  });
+  if (extras.length === 0) return extrasView(id, back);
+
+  const ctx = ctxOf(back);
+  const rows = extras.map((extra) => [
+    {
+      text: `${formatDate(extra.createdAt)} · ${formatRub(extra.amount)}${
+        extra.comment ? ` · ${extra.comment}` : ""
+      }`.slice(0, 60),
+      callback_data: `xq:${extra.id}${ctx}`,
+    },
+  ]);
+  rows.push([{ text: "Назад", callback_data: `xo:${id}${ctx}` }]);
+
+  return { text: "<b>Какую доплату удалить?</b>", markup: { inline_keyboard: rows } };
 }
 
 async function searchView(query: string): Promise<View> {
@@ -1234,18 +1345,41 @@ export async function handleMessage(msg: IncomingMessage) {
       isExpenseKind(draft.expenseKind) &&
       Date.now() - draft.updatedAt.getTime() < EXPENSE_TTL_MS
     ) {
-      const amount = parsePrice(trimmed);
-      if (!amount) {
+      const parsed = parseAmountWithComment(trimmed);
+      if (!parsed) {
         return sendMessage(
           chatId,
-          "Не понял сумму. Отправьте число в рублях, больше 0, например 15000. /cancel отменяет.",
+          "Не понял сумму. Отправьте число в рублях, больше 0, можно с комментарием: 15000 плитка. /cancel отменяет.",
         );
       }
       const applicationId = draft.applicationId;
-      await addExpense(applicationId, draft.expenseKind, amount);
+      await addExpense(applicationId, draft.expenseKind, parsed.amount, parsed.comment);
       await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
 
       const view = await expensesView(applicationId);
+      if (view) await send(chatId, view);
+      return;
+    }
+
+    // Владелец вводит доплату к стоимости
+    if (
+      role === "owner" &&
+      draft?.step === "extra" &&
+      draft.applicationId &&
+      Date.now() - draft.updatedAt.getTime() < EXPENSE_TTL_MS
+    ) {
+      const parsed = parseAmountWithComment(trimmed);
+      if (!parsed) {
+        return sendMessage(
+          chatId,
+          "Не понял сумму. Отправьте число в рублях, больше 0, можно с комментарием: 5000 непредвиденное. /cancel отменяет.",
+        );
+      }
+      const applicationId = draft.applicationId;
+      await addExtra(applicationId, parsed.amount, parsed.comment);
+      await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+
+      const view = await extrasView(applicationId);
       if (view) await send(chatId, view);
       return;
     }
@@ -1982,7 +2116,7 @@ export async function handleCallback(query: IncomingCallback) {
       const ctx = ctxOf(backFrom(filter, page));
       await sendMessage(
         chatId,
-        `<b>${EXPENSE_KIND_LABELS[kind]}: ${escapeHtml(application.name)}</b>\n\nОтправьте сумму в рублях, например 15000. Чтобы добавить ещё один расход, нажмите на нужную кнопку заново.`,
+        `<b>${EXPENSE_KIND_LABELS[kind]}: ${escapeHtml(application.name)}</b>\n\nОтправьте сумму в рублях, например 15000. Можно с комментарием: «15000 плитка». Чтобы добавить ещё один расход, нажмите на нужную кнопку заново.`,
         { inline_keyboard: [[{ text: "Отмена", callback_data: `ec:${id}${ctx}` }]] },
       );
       break;
@@ -2029,7 +2163,9 @@ export async function handleCallback(query: IncomingCallback) {
       await edit(chatId, messageId, {
         text: [
           "<b>Удалить этот расход?</b>",
-          `${formatDate(expense.createdAt)} · ${EXPENSE_KIND_LABELS[expense.kind as ExpenseKind]} · ${formatRub(expense.amount)}`,
+          `${formatDate(expense.createdAt)} · ${EXPENSE_KIND_LABELS[expense.kind as ExpenseKind]} · ${formatRub(expense.amount)}${
+            expense.comment ? `\n${escapeHtml(expense.comment)}` : ""
+          }`,
         ].join("\n\n"),
         markup: {
           inline_keyboard: [
@@ -2058,6 +2194,128 @@ export async function handleCallback(query: IncomingCallback) {
       const view = await expensesView(expense.applicationId, backFrom(filter, page));
       if (view) await edit(chatId, messageId, view);
       await answerCallback(query.id, "Расход удалён");
+      return;
+    }
+
+    // xo:<id>:<filter>:<page> — доплаты к стоимости заказа
+    case "xo": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      const view = id ? await extrasView(id, backFrom(filter, page)) : null;
+      if (!view) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      await edit(chatId, messageId, view);
+      break;
+    }
+
+    // xa:<id>:<filter>:<page> — ввести доплату следующим сообщением
+    case "xa": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      const application = id
+        ? await prisma.application.findUnique({ where: { id }, select: { name: true } })
+        : null;
+      if (!id || !application) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      const userId = String(query.from.id);
+      await prisma.telegramDraft.upsert({
+        where: { chatId: userId },
+        create: { chatId: userId, step: "extra", applicationId: id },
+        update: {
+          step: "extra",
+          applicationId: id,
+          expenseKind: null,
+          noteBatch: null,
+          name: null,
+          phone: null,
+          message: null,
+        },
+      });
+      const ctx = ctxOf(backFrom(filter, page));
+      await sendMessage(
+        chatId,
+        `<b>Доплата к стоимости: ${escapeHtml(application.name)}</b>\n\nОтправьте сумму в рублях, например 5000. Можно с комментарием: «5000 непредвиденное». Чтобы добавить ещё одну доплату, нажмите «+ Доплата» заново.`,
+        { inline_keyboard: [[{ text: "Отмена", callback_data: `xc:${id}${ctx}` }]] },
+      );
+      break;
+    }
+
+    // xc:<id>:<filter>:<page> — отмена ввода доплаты
+    case "xc": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      await prisma.telegramDraft.deleteMany({
+        where: { chatId: String(query.from.id), step: "extra" },
+      });
+      const view = id ? await extrasView(id, backFrom(filter, page)) : null;
+      if (view) await edit(chatId, messageId, view);
+      else await editMessage(chatId, messageId, "Отменено.");
+      break;
+    }
+
+    // xd:<id>:<filter>:<page> — выбрать доплату для удаления
+    case "xd": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      const view = id ? await deleteExtraListView(id, backFrom(filter, page)) : null;
+      if (!view) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      await edit(chatId, messageId, view);
+      break;
+    }
+
+    // xq:<extraId>:<filter>:<page> — подтверждение удаления доплаты
+    case "xq": {
+      if (await ownerOnly()) return;
+      const [extraId, filter, page] = rest;
+      const extra = extraId
+        ? await prisma.applicationExtra.findUnique({ where: { id: extraId } })
+        : null;
+      if (!extra) {
+        await answerCallback(query.id, "Доплата уже удалена");
+        return;
+      }
+      const ctx = ctxOf(backFrom(filter, page));
+      await edit(chatId, messageId, {
+        text: [
+          "<b>Удалить эту доплату?</b>",
+          `${formatDate(extra.createdAt)} · ${formatRub(extra.amount)}${
+            extra.comment ? `\n${escapeHtml(extra.comment)}` : ""
+          }`,
+        ].join("\n\n"),
+        markup: {
+          inline_keyboard: [
+            [
+              { text: "Да, удалить", callback_data: `xz:${extra.id}${ctx}` },
+              { text: "Отмена", callback_data: `xd:${extra.applicationId}${ctx}` },
+            ],
+          ],
+        },
+      });
+      break;
+    }
+
+    // xz:<extraId>:<filter>:<page> — удалить доплату
+    case "xz": {
+      if (await ownerOnly()) return;
+      const [extraId, filter, page] = rest;
+      const extra = extraId
+        ? await prisma.applicationExtra.findUnique({ where: { id: extraId } })
+        : null;
+      if (!extra) {
+        await answerCallback(query.id, "Доплата уже удалена");
+        return;
+      }
+      await deleteExtra(extra.applicationId, extra.id);
+      const view = await extrasView(extra.applicationId, backFrom(filter, page));
+      if (view) await edit(chatId, messageId, view);
+      await answerCallback(query.id, "Доплата удалена");
       return;
     }
 

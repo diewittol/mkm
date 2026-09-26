@@ -169,7 +169,7 @@ async function main() {
       {
         title: "Спальня в скандинавском стиле",
         slug: "spalnya-skandi",
-        location: "Красноярск",
+        location: "ст. Ханская",
         description:
           "Комплект мебели для спальни из массива дуба: кровать, комод, тумбы.",
         isPublished: true,
@@ -202,7 +202,7 @@ async function main() {
       companyName: "МКМ — мебель из массива дерева",
       phone: "+7 (999) 123-45-67",
       email: "info@mkm.ru",
-      address: "г. Красноярск, ул. Примерная, 123",
+      address: "ст. Ханская, ул. Примерная, 123",
       telegram: "@mkm_furniture",
       whatsapp: "+79991234567",
     },

@@ -8,8 +8,9 @@ import { ApplicationNotes } from "@/components/admin/ApplicationNotes";
 import { ApplicationPrice } from "@/components/admin/ApplicationPrice";
 import { ApplicationOrderNumber } from "@/components/admin/ApplicationOrderNumber";
 import { ApplicationExpenses } from "@/components/admin/ApplicationExpenses";
+import { ApplicationExtras } from "@/components/admin/ApplicationExtras";
 import { MoneyStats } from "@/components/admin/MoneyStats";
-import { formatRub } from "@/lib/money";
+import { formatRub, totalPrice } from "@/lib/money";
 import type { ManualApplicationValues } from "@/lib/schemas";
 import {
   APPLICATION_STATUS_LABELS,
@@ -29,6 +30,7 @@ interface ApplicationFromApi {
   source: string;
   price: number | null;
   expenseTotal: number;
+  extraTotal: number;
   orderNumber: string | null;
   _count?: { notes: number };
   product: { id: string; name: string; slug: string } | null;
@@ -276,7 +278,7 @@ export default function AdminRequestsPage() {
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-5 py-3 text-sm text-text/70" data-label="Стоимость">
-                      {app.price ? formatRub(app.price) : "—"}
+                      {totalPrice(app.price, app.extraTotal) ? formatRub(totalPrice(app.price, app.extraTotal)!) : "—"}
                     </td>
                     <td className="px-5 py-3 text-sm text-text/60" data-label="Дата">
                       {formatDate(app.createdAt)}
@@ -424,7 +426,23 @@ export default function AdminRequestsPage() {
               }}
             />
 
-            <ApplicationExpenses key={viewing.id} applicationId={viewing.id} price={viewing.price} />
+            <ApplicationExtras
+              key={viewing.id}
+              applicationId={viewing.id}
+              price={viewing.price}
+              onTotalChange={(extraTotal) => {
+                setApplications((prev) =>
+                  prev.map((a) => (a.id === viewing.id ? { ...a, extraTotal } : a)),
+                );
+                setViewing((prev) => (prev && prev.id === viewing.id ? { ...prev, extraTotal } : prev));
+              }}
+            />
+
+            <ApplicationExpenses
+              key={viewing.id}
+              applicationId={viewing.id}
+              price={totalPrice(viewing.price, viewing.extraTotal)}
+            />
 
             <div className="border-t border-border pt-5">
               <p className="text-xs font-medium uppercase tracking-wider text-text/50">
