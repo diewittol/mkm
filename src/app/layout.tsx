@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Montserrat, Inter } from "next/font/google";
 import "./globals.css";
+import { SITE_NAME, SITE_URL } from "@/lib/seo";
 
 const montserrat = Montserrat({
   variable: "--font-montserrat",
@@ -15,9 +16,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "МКМ — мебель из массива дерева",
-  description:
-    "Изготовление мебели по индивидуальным размерам для дома и бизнеса",
+  // Относительные адреса в canonical и Open Graph превращаются в абсолютные
+  metadataBase: new URL(SITE_URL),
+  title: "Мебель на заказ в Адыгее — МКМ",
+  description: "Изготовление мебели по индивидуальным размерам для дома и бизнеса",
+  openGraph: { type: "website", locale: "ru_RU", siteName: SITE_NAME },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

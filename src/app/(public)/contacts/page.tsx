@@ -5,15 +5,21 @@ import { ContactForm } from "@/components/ui/ContactForm";
 import { LocationsMap } from "@/components/contacts/LocationsMap";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { breadcrumbLd, buildMetadata, getBusinessLd } from "@/lib/seo";
 
-export const metadata = {
-  title: "Контакты — МКМ",
-  description:
-    "Свяжитесь с нами: телефон, email, адреса магазинов. Оставьте заявку — ответим в течение рабочего дня.",
-};
+export async function generateMetadata() {
+  return buildMetadata({
+    title: "Контакты МКМ — адрес, телефон, режим работы | ст. Ханская",
+    description:
+      "МКМ в станице Ханской (Адыгея): адрес магазина, телефон, WhatsApp и Telegram, режим работы. Оставьте заявку — ответим в течение рабочего дня.",
+    path: "/contacts",
+  });
+}
 
 export default async function ContactsPage() {
   const settings = await getSettings();
+  const businessLd = await getBusinessLd();
 
   // Адреса из админки; если их ещё нет — запасной адрес из настроек (без координат)
   const stored = await prisma.location.findMany({ orderBy: { createdAt: "asc" } });
@@ -38,6 +44,13 @@ export default async function ContactsPage() {
 
   return (
     <Container className="py-10 lg:py-14">
+      <JsonLd data={businessLd} />
+      <JsonLd
+        data={breadcrumbLd([
+          { name: "Главная", path: "/" },
+          { name: "Контакты", path: "/contacts" },
+        ])}
+      />
       {/* Хлебные крошки */}
       <nav className="flex items-center gap-1 text-sm text-text/60">
         <Link href="/" className="transition hover:text-primary">

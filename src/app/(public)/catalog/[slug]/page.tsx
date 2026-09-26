@@ -5,15 +5,20 @@ import { ChevronRight } from "lucide-react";
 import { Container } from "@/components/layout/Container";
 import { ProductActions } from "@/components/product/ProductActions";
 import { prisma } from "@/lib/prisma";
-import type { Metadata } from "next";
+import { JsonLd } from "@/components/seo/JsonLd";
+import {
+  breadcrumbLd,
+  buildMetadata,
+  categoryPath,
+  productLd,
+  truncate,
+} from "@/lib/seo";
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>;
 }
 
-export async function generateMetadata({
-  params,
-}: ProductPageProps): Promise<Metadata> {
+export async function generateMetadata({ params }: ProductPageProps) {
   const { slug } = await params;
   const product = await prisma.product.findUnique({
     where: { slug },
@@ -24,20 +29,18 @@ export async function generateMetadata({
     return { title: "Изделие не найдено — МКМ" };
   }
 
-  const title = product.seoTitle ?? `${product.name} — МКМ`;
-  const description =
+  const title = product.seoTitle ?? `${product.name} на заказ — МКМ, Адыгея`;
+  const description = truncate(
     product.seoDescription ??
-    product.shortDescription ??
-    `${product.name} из категории «${product.category.name}». Мебель на заказ.`;
-  return {
+      product.shortDescription ??
+      `${product.name} из категории «${product.category.name}». Мебель на заказ по вашим размерам. МКМ, ст. Ханская, Адыгея.`,
+  );
+  return buildMetadata({
     title,
     description,
-    openGraph: {
-      title,
-      description,
-      images: product.images?.[0]?.url ? [product.images[0].url] : [],
-    },
-  };
+    path: `/catalog/${product.slug}`,
+    image: product.images?.[0]?.url ?? undefined,
+  });
 }
 
 
@@ -60,6 +63,27 @@ export default async function ProductPage({ params }: ProductPageProps) {
 
   return (
     <Container className="py-10 lg:py-14">
+      <JsonLd
+        data={productLd({
+          name: product.name,
+          slug: product.slug,
+          description:
+            product.shortDescription ??
+            product.description ??
+            `${product.name} на заказ. МКМ, Адыгея.`,
+          categoryName: product.category.name,
+          images: product.images.map((image) => image.url),
+          specifications: product.specifications,
+        })}
+      />
+      <JsonLd
+        data={breadcrumbLd([
+          { name: "Главная", path: "/" },
+          { name: "Каталог", path: "/catalog" },
+          { name: product.category.name, path: categoryPath(product.category.slug) },
+          { name: product.name, path: `/catalog/${product.slug}` },
+        ])}
+      />
       {/* Хлебные крошки */}
       <nav className="flex flex-wrap items-center gap-1 text-sm text-text/60">
         <Link href="/" className="transition hover:text-primary">
@@ -71,7 +95,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
         </Link>
         <ChevronRight size={14} />
         <Link
-          href={`/catalog?category=${product.category.slug}`}
+          href={categoryPath(product.category.slug)}
           className="transition hover:text-primary"
         >
           {product.category.name}

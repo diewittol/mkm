@@ -2,12 +2,16 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Container } from "@/components/layout/Container";
 import { getSettings } from "@/lib/settings";
+import { buildMetadata } from "@/lib/seo";
 
-export const metadata = {
-  title: "Политика конфиденциальности — МКМ",
-  description:
-    "Политика обработки персональных данных пользователей сайта МКМ.",
-};
+export async function generateMetadata() {
+  return buildMetadata({
+    title: "Политика конфиденциальности — МКМ",
+    description: "Политика обработки персональных данных пользователей сайта МКМ.",
+    path: "/privacy",
+    image: null,
+  });
+}
 
 export default async function PrivacyPage() {
   const settings = await getSettings();

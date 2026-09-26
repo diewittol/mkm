@@ -1,12 +1,17 @@
 import Link from "next/link";
 import { ChevronRight, Cpu, TreePine, Users, Award } from "lucide-react";
 import { Container } from "@/components/layout/Container";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { breadcrumbLd, buildMetadata } from "@/lib/seo";
 
-export const metadata = {
-  title: "О компании — МКМ",
-  description:
-    "МКМ — производство мебели из массива дерева на заказ. Более 15 лет опыта, собственный цех, раскрой и кромкование на станках с ЧПУ.",
-};
+export async function generateMetadata() {
+  return buildMetadata({
+    title: "О компании МКМ — мебельная мастерская в станице Ханской",
+    description:
+      "МКМ — мебель на заказ в Адыгее. Более 15 лет опыта, 5000+ проектов, собственный цех, раскрой и кромкование на станках с ЧПУ, гарантия 5 лет.",
+    path: "/about",
+  });
+}
 
 const VALUES = [
   {
@@ -45,6 +50,12 @@ const STATS = [
 export default function AboutPage() {
   return (
     <>
+      <JsonLd
+        data={breadcrumbLd([
+          { name: "Главная", path: "/" },
+          { name: "О компании", path: "/about" },
+        ])}
+      />
       {/* Hero */}
       <section className="bg-beige py-16 lg:py-24">
         <Container>

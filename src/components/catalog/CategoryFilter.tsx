@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { categoryPath } from "@/lib/seo";
 
 interface CategoryFilterProps {
   categories: { slug: string; name: string }[];
@@ -16,7 +17,7 @@ export const CategoryFilter = ({
       {items.map((category) => {
         const isActive = currentCategory === category.slug;
         const href = category.slug
-          ? `/catalog?category=${category.slug}`
+          ? categoryPath(category.slug)
           : "/catalog";
 
         return (

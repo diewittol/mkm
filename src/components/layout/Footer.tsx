@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Container } from "./Container";
 import { getSettings } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
+import { categoryPath } from "@/lib/seo";
 
 const NAVIGATION = [
   { href: "/", label: "Главная" },
@@ -74,7 +75,7 @@ export const Footer = async () => {
               {categories.map((c) => (
                 <li key={c.id}>
                   <Link
-                    href={`/catalog?category=${c.slug}`}
+                    href={categoryPath(c.slug)}
                     className="text-sm text-text/70 transition hover:text-primary"
                   >
                     {c.name}

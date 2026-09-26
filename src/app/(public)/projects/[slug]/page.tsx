@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { Container } from "@/components/layout/Container";
 import { prisma } from "@/lib/prisma";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { breadcrumbLd, buildMetadata, truncate } from "@/lib/seo";
 
 interface ProjectPageProps {
   params: Promise<{ slug: string }>;
@@ -11,18 +13,24 @@ interface ProjectPageProps {
 
 export async function generateMetadata({ params }: ProjectPageProps) {
   const { slug } = await params;
-  const project = await prisma.project.findUnique({ where: { slug } });
+  const project = await prisma.project.findUnique({
+    where: { slug },
+    include: { images: { orderBy: { order: "asc" }, take: 1 } },
+  });
 
   if (!project) {
     return { title: "Проект не найден — МКМ" };
   }
 
-  return {
-    title: `${project.title} — МКМ`,
-    description:
+  return buildMetadata({
+    title: `${project.title} — проект МКМ`,
+    description: truncate(
       project.description ??
-      `Реализованный проект: ${project.title}. Мебель на заказ.`,
-  };
+        `Реализованный проект: ${project.title}. Мебель на заказ в Адыгее, МКМ.`,
+    ),
+    path: `/projects/${project.slug}`,
+    image: project.images[0]?.url ?? undefined,
+  });
 }
 
 export default async function ProjectPage({ params }: ProjectPageProps) {
@@ -39,6 +47,13 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   return (
     <Container className="py-10 lg:py-14">
+      <JsonLd
+        data={breadcrumbLd([
+          { name: "Главная", path: "/" },
+          { name: "Проекты", path: "/projects" },
+          { name: project.title, path: `/projects/${project.slug}` },
+        ])}
+      />
       {/* Хлебные крошки */}
       <nav className="flex flex-wrap items-center gap-1 text-sm text-text/60">
         <Link href="/" className="transition hover:text-primary">

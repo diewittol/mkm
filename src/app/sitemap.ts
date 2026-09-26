@@ -1,8 +1,6 @@
 import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
-
-// Меняем на реальный домен при деплое
-const SITE_URL = process.env.SITE_URL ?? "http://localhost:3000";
+import { SITE_URL, absoluteUrl, categoryPath } from "@/lib/seo";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const [products, categories, projects] = await Promise.all([
@@ -19,44 +17,37 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }),
   ]);
 
-  const now = new Date();
-
   return [
     // Статические страницы
     {
       url: SITE_URL,
-      lastModified: now,
       changeFrequency: "weekly",
       priority: 1,
     },
     {
       url: `${SITE_URL}/catalog`,
-      lastModified: now,
       changeFrequency: "daily",
       priority: 0.9,
     },
     {
       url: `${SITE_URL}/about`,
-      lastModified: now,
       changeFrequency: "monthly",
       priority: 0.6,
     },
     {
       url: `${SITE_URL}/projects`,
-      lastModified: now,
       changeFrequency: "weekly",
       priority: 0.7,
     },
     {
       url: `${SITE_URL}/contacts`,
-      lastModified: now,
       changeFrequency: "monthly",
       priority: 0.6,
     },
 
     // Категории каталога
     ...categories.map((category) => ({
-      url: `${SITE_URL}/catalog?category=${category.slug}`,
+      url: absoluteUrl(categoryPath(category.slug)),
       lastModified: category.updatedAt,
       changeFrequency: "weekly" as const,
       priority: 0.8,

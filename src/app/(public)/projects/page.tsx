@@ -3,14 +3,19 @@ import Image from "next/image";
 import { ChevronRight } from "lucide-react";
 import { Container } from "@/components/layout/Container";
 import { prisma } from "@/lib/prisma";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { breadcrumbLd, buildMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: "Реализованные проекты — МКМ",
-  description:
-    "Портфолио МКМ: мебель на заказ для квартир, домов и офисов. Смотрите реализованные проекты с фото и описанием.",
-};
+export async function generateMetadata() {
+  return buildMetadata({
+    title: "Наши проекты — реализованная мебель на заказ | МКМ",
+    description:
+      "Портфолио МКМ: кухни, спальни, лестницы и другая мебель на заказ для квартир, домов и офисов в Адыгее. Более 5000 проектов за 15 лет.",
+    path: "/projects",
+  });
+}
 
 export default async function ProjectsPage() {
   const projects = await prisma.project.findMany({
@@ -21,6 +26,12 @@ export default async function ProjectsPage() {
 
   return (
     <Container className="py-10 lg:py-14">
+      <JsonLd
+        data={breadcrumbLd([
+          { name: "Главная", path: "/" },
+          { name: "Проекты", path: "/projects" },
+        ])}
+      />
       {/* Хлебные крошки */}
       <nav className="flex items-center gap-1 text-sm text-text/60">
         <Link href="/" className="transition hover:text-primary">

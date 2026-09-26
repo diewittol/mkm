@@ -3,6 +3,7 @@ import Image from "next/image";
 import { ArrowRight } from "lucide-react";
 import { Container } from "@/components/layout/Container";
 import { prisma } from "@/lib/prisma";
+import { categoryPath } from "@/lib/seo";
 
 export const Categories = async () => {
   const categories = await prisma.category.findMany({
@@ -40,7 +41,7 @@ export const Categories = async () => {
           {categories.map((category) => (
             <Link
               key={category.id}
-              href={`/catalog?category=${category.slug}`}
+              href={categoryPath(category.slug)}
               className="group block"
             >
               <article className="overflow-hidden rounded-2xl border border-border bg-white transition hover:-translate-y-1 hover:shadow-lg">
