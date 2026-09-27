@@ -121,6 +121,12 @@ model Settings {
   telegram    String?
   whatsapp    String?
 
+  // Фон главного экрана: фото или цвет (если оба пусты — стандартный бежевый)
+  heroImage     String?
+  heroColor     String? // #rrggbb
+  heroOverlay   Int     @default(40) // затемнение/осветление поверх фото, 0–80 %
+  heroTextTheme String  @default("auto") // auto | dark | light
+
   updatedAt DateTime @updatedAt
 }
 

@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/Input";
+import { HERO_COLOR_PATTERN, HERO_DEFAULT_OVERLAY } from "@/lib/hero";
+import {
+  HeroBackgroundSettings,
+  type HeroMode,
+  type HeroValues,
+} from "@/components/admin/HeroBackgroundSettings";
 
 interface SettingsForm {
   companyName: string;
@@ -11,7 +17,27 @@ interface SettingsForm {
   address: string;
   telegram: string;
   whatsapp: string;
+  heroMode: HeroMode;
+  heroColor: string;
+  heroImage: string;
+  heroOverlay: number;
+  heroTextTheme: string;
 }
+
+// Данные из API -> значения формы
+const toForm = (data: Record<string, unknown>): SettingsForm => ({
+  companyName: (data.companyName as string) ?? "",
+  phone: (data.phone as string) ?? "",
+  email: (data.email as string) ?? "",
+  address: (data.address as string) ?? "",
+  telegram: (data.telegram as string) ?? "",
+  whatsapp: (data.whatsapp as string) ?? "",
+  heroMode: data.heroImage ? "image" : data.heroColor ? "color" : "default",
+  heroColor: (data.heroColor as string) ?? "",
+  heroImage: (data.heroImage as string) ?? "",
+  heroOverlay: (data.heroOverlay as number) ?? HERO_DEFAULT_OVERLAY,
+  heroTextTheme: (data.heroTextTheme as string) ?? "auto",
+});
 
 export default function AdminSettingsPage() {
   const [isLoading, setLoading] = useState(true);
@@ -22,6 +48,8 @@ export default function AdminSettingsPage() {
     handleSubmit,
     formState: { isSubmitting, isDirty },
     reset,
+    control,
+    setValue,
   } = useForm<SettingsForm>({
     defaultValues: {
       companyName: "",
@@ -30,33 +58,49 @@ export default function AdminSettingsPage() {
       address: "",
       telegram: "",
       whatsapp: "",
+      heroMode: "default",
+      heroColor: "",
+      heroImage: "",
+      heroOverlay: HERO_DEFAULT_OVERLAY,
+      heroTextTheme: "auto",
     },
   });
+
+  const [heroMode, heroColor, heroImage, heroOverlay, heroTextTheme] = useWatch({
+    control,
+    name: ["heroMode", "heroColor", "heroImage", "heroOverlay", "heroTextTheme"],
+  });
+  const heroValues: HeroValues = { heroMode, heroColor, heroImage, heroOverlay, heroTextTheme };
 
   // Загружаем текущие настройки
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((data) => {
-        if (data) {
-          reset({
-            companyName: data.companyName ?? "",
-            phone: data.phone ?? "",
-            email: data.email ?? "",
-            address: data.address ?? "",
-            telegram: data.telegram ?? "",
-            whatsapp: data.whatsapp ?? "",
-          });
-        }
+        if (data) reset(toForm(data));
       })
       .finally(() => setLoading(false));
   }, [reset]);
 
   const onSubmit = async (data: SettingsForm) => {
+    if (data.heroMode === "color" && !HERO_COLOR_PATTERN.test(data.heroColor)) {
+      alert("Укажите цвет фона в формате #e8e1d8");
+      return;
+    }
+    if (data.heroMode === "image" && !data.heroImage) {
+      alert("Загрузите фото для главного экрана или выберите другой вариант фона");
+      return;
+    }
+
+    const { heroMode: mode, ...fields } = data;
     const response = await fetch("/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ...fields,
+        heroImage: mode === "image" ? data.heroImage : null,
+        heroColor: mode === "color" ? data.heroColor : null,
+      }),
     });
 
     if (!response.ok) {
@@ -65,14 +109,7 @@ export default function AdminSettingsPage() {
     }
 
     const saved = await response.json();
-    reset({
-      companyName: saved.companyName ?? "",
-      phone: saved.phone ?? "",
-      email: saved.email ?? "",
-      address: saved.address ?? "",
-      telegram: saved.telegram ?? "",
-      whatsapp: saved.whatsapp ?? "",
-    });
+    reset(toForm(saved));
 
     // Показываем «Сохранено» на 2 секунды
     setSavedMessage("Изменения сохранены");
@@ -186,6 +223,15 @@ export default function AdminSettingsPage() {
             PNG или SVG, до 1 МБ. Рекомендуем 512×512.
           </p>
         </div>
+
+        <HeroBackgroundSettings
+          values={heroValues}
+          onChange={(patch) => {
+            for (const [key, value] of Object.entries(patch)) {
+              setValue(key as keyof SettingsForm, value as never, { shouldDirty: true });
+            }
+          }}
+        />
 
         <div className="flex items-center gap-3 lg:col-span-2">
           <button
