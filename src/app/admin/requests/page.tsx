@@ -406,6 +406,44 @@ export default function AdminRequestsPage() {
               </div>
             )}
 
+            <div className="border-t border-border pt-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-text/50">
+                Статус
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(Object.keys(APPLICATION_STATUS_LABELS) as ApplicationStatus[]).map(
+                  (status) => {
+                    const isActive = viewing.status === status;
+                    return (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => changeStatus(viewing.id, status)}
+                        className={`rounded-full px-4 py-2 text-xs font-medium transition ${
+                          isActive
+                            ? "bg-primary text-white"
+                            : "border border-border bg-white text-text hover:border-primary hover:text-primary"
+                        }`}
+                      >
+                        {APPLICATION_STATUS_LABELS[status]}
+                      </button>
+                    );
+                  },
+                )}
+              </div>
+            </div>
+
+            <ApplicationNotes
+              key={viewing.id}
+              applicationId={viewing.id}
+              onCountChange={(count) => {
+                const patchCount = (a: ApplicationFromApi) =>
+                  a.id === viewing.id ? { ...a, _count: { notes: count } } : a;
+                setApplications((prev) => prev.map(patchCount));
+              }}
+            />
+
+            {/* Деньги — в самом низу, чтобы не мешать при обычном просмотре заявки */}
             <ApplicationPrice
               key={viewing.id}
               applicationId={viewing.id}
@@ -447,43 +485,6 @@ export default function AdminRequestsPage() {
               key={viewing.id}
               applicationId={viewing.id}
               price={totalPrice(viewing.price, viewing.extraTotal)}
-            />
-
-            <div className="border-t border-border pt-5">
-              <p className="text-xs font-medium uppercase tracking-wider text-text/50">
-                Статус
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(Object.keys(APPLICATION_STATUS_LABELS) as ApplicationStatus[]).map(
-                  (status) => {
-                    const isActive = viewing.status === status;
-                    return (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => changeStatus(viewing.id, status)}
-                        className={`rounded-full px-4 py-2 text-xs font-medium transition ${
-                          isActive
-                            ? "bg-primary text-white"
-                            : "border border-border bg-white text-text hover:border-primary hover:text-primary"
-                        }`}
-                      >
-                        {APPLICATION_STATUS_LABELS[status]}
-                      </button>
-                    );
-                  },
-                )}
-              </div>
-            </div>
-
-            <ApplicationNotes
-              key={viewing.id}
-              applicationId={viewing.id}
-              onCountChange={(count) => {
-                const patchCount = (a: ApplicationFromApi) =>
-                  a.id === viewing.id ? { ...a, _count: { notes: count } } : a;
-                setApplications((prev) => prev.map(patchCount));
-              }}
             />
 
             <div className="flex gap-3 border-t border-border pt-5">
