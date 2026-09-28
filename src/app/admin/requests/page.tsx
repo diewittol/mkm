@@ -456,18 +456,6 @@ export default function AdminRequestsPage() {
               }}
             />
 
-            <ApplicationExtras
-              key={viewing.id}
-              applicationId={viewing.id}
-              price={viewing.price}
-              onTotalChange={(extraTotal) => {
-                setApplications((prev) =>
-                  prev.map((a) => (a.id === viewing.id ? { ...a, extraTotal } : a)),
-                );
-                setViewing((prev) => (prev && prev.id === viewing.id ? { ...prev, extraTotal } : prev));
-              }}
-            />
-
             <ApplicationDeposit
               key={viewing.id}
               applicationId={viewing.id}
@@ -485,6 +473,18 @@ export default function AdminRequestsPage() {
               key={viewing.id}
               applicationId={viewing.id}
               price={totalPrice(viewing.price, viewing.extraTotal)}
+            />
+
+            <ApplicationExtras
+              key={viewing.id}
+              applicationId={viewing.id}
+              price={viewing.price}
+              onTotalChange={(extraTotal) => {
+                setApplications((prev) =>
+                  prev.map((a) => (a.id === viewing.id ? { ...a, extraTotal } : a)),
+                );
+                setViewing((prev) => (prev && prev.id === viewing.id ? { ...prev, extraTotal } : prev));
+              }}
             />
 
             <div className="flex gap-3 border-t border-border pt-5">
