@@ -101,6 +101,9 @@ model Application {
   // Номер заказа (произвольный текст, например из 1С или в бумажном учёте); вписывает админ
   orderNumber String?
 
+  // Предоплата от клиента в рублях; остаток = стоимость (+ доплаты) − предоплата
+  deposit Int?
+
   notes    ApplicationNote[]
   expenses ApplicationExpense[]
   extras   ApplicationExtra[]

@@ -41,3 +41,8 @@ export function parseAmountWithComment(
 // Итоговая стоимость заказа: базовая цена плюс доплаты. null — стоимость не задана.
 export const totalPrice = (price: number | null, extras: number): number | null =>
   (price ?? 0) + extras || null;
+
+// Остаток к оплате: итоговая стоимость минус предоплата. null — стоимость ещё не
+// указана, отрицательное число — клиент внёс больше стоимости (переплата).
+export const remainingToPay = (total: number | null, deposit: number): number | null =>
+  total === null ? null : total - deposit;

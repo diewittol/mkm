@@ -56,6 +56,18 @@ export async function PATCH(
     data.price = price || null;
   }
 
+  // Предоплата в рублях: целое число, null или 0 — убрать
+  if ("deposit" in body) {
+    const deposit = body.deposit;
+    const valid =
+      deposit === null ||
+      (typeof deposit === "number" && Number.isInteger(deposit) && deposit >= 0 && deposit <= MAX_PRICE);
+    if (!valid) {
+      return NextResponse.json({ error: "Некорректная сумма предоплаты" }, { status: 400 });
+    }
+    data.deposit = deposit || null;
+  }
+
   // Номер заказа: произвольный текст; пустая строка или null — убрать
   if ("orderNumber" in body) {
     const raw = body.orderNumber;

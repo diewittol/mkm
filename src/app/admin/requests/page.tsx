@@ -9,6 +9,7 @@ import { ApplicationPrice } from "@/components/admin/ApplicationPrice";
 import { ApplicationOrderNumber } from "@/components/admin/ApplicationOrderNumber";
 import { ApplicationExpenses } from "@/components/admin/ApplicationExpenses";
 import { ApplicationExtras } from "@/components/admin/ApplicationExtras";
+import { ApplicationDeposit } from "@/components/admin/ApplicationDeposit";
 import { MoneyStats } from "@/components/admin/MoneyStats";
 import { formatRub, totalPrice } from "@/lib/money";
 import type { ManualApplicationValues } from "@/lib/schemas";
@@ -32,6 +33,7 @@ interface ApplicationFromApi {
   expenseTotal: number;
   extraTotal: number;
   orderNumber: string | null;
+  deposit: number | null;
   _count?: { notes: number };
   product: { id: string; name: string; slug: string } | null;
 }
@@ -404,16 +406,6 @@ export default function AdminRequestsPage() {
               </div>
             )}
 
-            <ApplicationNotes
-              key={viewing.id}
-              applicationId={viewing.id}
-              onCountChange={(count) => {
-                const patchCount = (a: ApplicationFromApi) =>
-                  a.id === viewing.id ? { ...a, _count: { notes: count } } : a;
-                setApplications((prev) => prev.map(patchCount));
-              }}
-            />
-
             <ApplicationPrice
               key={viewing.id}
               applicationId={viewing.id}
@@ -435,6 +427,19 @@ export default function AdminRequestsPage() {
                   prev.map((a) => (a.id === viewing.id ? { ...a, extraTotal } : a)),
                 );
                 setViewing((prev) => (prev && prev.id === viewing.id ? { ...prev, extraTotal } : prev));
+              }}
+            />
+
+            <ApplicationDeposit
+              key={viewing.id}
+              applicationId={viewing.id}
+              total={totalPrice(viewing.price, viewing.extraTotal)}
+              deposit={viewing.deposit}
+              onSaved={(deposit) => {
+                setApplications((prev) =>
+                  prev.map((a) => (a.id === viewing.id ? { ...a, deposit } : a)),
+                );
+                setViewing((prev) => (prev && prev.id === viewing.id ? { ...prev, deposit } : prev));
               }}
             />
 
@@ -470,6 +475,16 @@ export default function AdminRequestsPage() {
                 )}
               </div>
             </div>
+
+            <ApplicationNotes
+              key={viewing.id}
+              applicationId={viewing.id}
+              onCountChange={(count) => {
+                const patchCount = (a: ApplicationFromApi) =>
+                  a.id === viewing.id ? { ...a, _count: { notes: count } } : a;
+                setApplications((prev) => prev.map(patchCount));
+              }}
+            />
 
             <div className="flex gap-3 border-t border-border pt-5">
               <a
