@@ -3,7 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { createManualApplication } from "@/lib/manual-application";
 import { parsePhone } from "@/lib/phone";
 import { groupNotes } from "@/lib/note-groups";
-import { formatRub, parseAmountWithComment, parsePrice, totalPrice } from "@/lib/money";
+import {
+  formatRub,
+  parseAmountWithComment,
+  parsePrice,
+  remainingToPay,
+  totalPrice,
+} from "@/lib/money";
 import { addExtra, deleteExtra, sumAmounts } from "@/lib/order-extras";
 import {
   expenseTotals,
@@ -273,6 +279,7 @@ async function cardView(
       }`,
       price: role === "owner" ? total : undefined,
       extras: role === "owner" ? extraSum : undefined,
+      deposit: role === "owner" ? (application.deposit ?? 0) : undefined,
       expenses: expenseSum,
       statusNote:
         note ??
@@ -330,7 +337,7 @@ async function statusMenuView(id: string, back?: KeyboardBack): Promise<View | n
 async function financeMenuView(id: string, back?: KeyboardBack): Promise<View | null> {
   const application = await prisma.application.findUnique({
     where: { id },
-    select: { name: true, price: true },
+    select: { name: true, price: true, deposit: true },
   });
   if (!application) return null;
 
@@ -345,6 +352,7 @@ async function financeMenuView(id: string, back?: KeyboardBack): Promise<View | 
   );
   const total = totalPrice(application.price, extraSum);
   const remainder = total !== null ? total - totals.total : null;
+  const toPay = remainingToPay(total, application.deposit ?? 0);
 
   const ctx = ctxOf(back);
   return {
@@ -354,6 +362,14 @@ async function financeMenuView(id: string, back?: KeyboardBack): Promise<View | 
       `Стоимость: ${application.price ? formatRub(application.price) : "не указана"}`,
       extraSum ? `Доплаты: ${formatRub(extraSum)}` : "",
       extraSum && total ? `Итого: ${formatRub(total)}` : "",
+      application.deposit ? `Предоплата: ${formatRub(application.deposit)}` : "",
+      toPay !== null && (total || application.deposit)
+        ? toPay > 0
+          ? `<b>Осталось доплатить: ${formatRub(toPay)}</b>`
+          : toPay < 0
+            ? `Переплата: ${formatRub(-toPay)}`
+            : "Оплачено полностью"
+        : "",
       `Расход: ${formatRub(totals.total)}`,
       remainder !== null ? `<b>Заказ − расход: ${formatRub(remainder)}</b>` : "",
     ]
@@ -371,6 +387,12 @@ async function financeMenuView(id: string, back?: KeyboardBack): Promise<View | 
           {
             text: extraSum ? `Доплаты: ${formatRub(extraSum)}` : "Добавить доплату к стоимости",
             callback_data: `xo:${id}${ctx}`,
+          },
+        ],
+        [
+          {
+            text: application.deposit ? `Предоплата: ${formatRub(application.deposit)}` : "Указать предоплату",
+            callback_data: `dp:${id}${ctx}`,
           },
         ],
         [
@@ -1337,6 +1359,32 @@ export async function handleMessage(msg: IncomingMessage) {
       return;
     }
 
+    // Владелец вводит предоплату клиента
+    if (
+      role === "owner" &&
+      draft?.step === "deposit" &&
+      draft.applicationId &&
+      Date.now() - draft.updatedAt.getTime() < PRICE_TTL_MS
+    ) {
+      const deposit = parsePrice(trimmed);
+      if (deposit === undefined) {
+        return sendMessage(
+          chatId,
+          "Не понял сумму. Отправьте число в рублях, например 50000. «0» убирает предоплату, /cancel отменяет.",
+        );
+      }
+      const updated = await prisma.application.updateMany({
+        where: { id: draft.applicationId },
+        data: { deposit: deposit || null },
+      });
+      await prisma.telegramDraft.deleteMany({ where: { chatId: userId } });
+      if (updated.count === 0) return sendMessage(chatId, "Заявка не найдена (возможно, удалена).");
+
+      const view = await cardView(draft.applicationId, role);
+      if (view) await send(chatId, view);
+      return;
+    }
+
     // Владелец вводит сумму расхода
     if (
       role === "owner" &&
@@ -2067,6 +2115,61 @@ export async function handleCallback(query: IncomingCallback) {
       const [id, filter, page] = rest;
       await prisma.telegramDraft.deleteMany({
         where: { chatId: String(query.from.id), step: "price" },
+      });
+      const view = id ? await cardView(id, role, backFrom(filter, page)) : null;
+      if (view) await edit(chatId, messageId, view);
+      else await editMessage(chatId, messageId, "Отменено.");
+      break;
+    }
+
+    // dp:<id>:<filter>:<page> — ввести предоплату следующим сообщением
+    case "dp": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      const application = id
+        ? await prisma.application.findUnique({
+            where: { id },
+            select: { name: true, deposit: true },
+          })
+        : null;
+      if (!id || !application) {
+        await answerCallback(query.id, "Заявка не найдена (возможно, удалена)");
+        return;
+      }
+      const userId = String(query.from.id);
+      await prisma.telegramDraft.upsert({
+        where: { chatId: userId },
+        create: { chatId: userId, step: "deposit", applicationId: id },
+        update: {
+          step: "deposit",
+          applicationId: id,
+          expenseKind: null,
+          noteBatch: null,
+          name: null,
+          phone: null,
+          message: null,
+        },
+      });
+      await sendMessage(
+        chatId,
+        `<b>Предоплата: ${escapeHtml(application.name)}</b>\n\n${
+          application.deposit ? `Сейчас: ${formatRub(application.deposit)}.\n\n` : ""
+        }Отправьте сумму в рублях, сколько внёс клиент, например 50000. Чтобы убрать предоплату, отправьте «0».`,
+        {
+          inline_keyboard: [
+            [{ text: "Отмена", callback_data: `dc:${id}${ctxOf(backFrom(filter, page))}` }],
+          ],
+        },
+      );
+      break;
+    }
+
+    // dc:<id>:<filter>:<page> — отмена ввода предоплаты, назад к карточке
+    case "dc": {
+      if (await ownerOnly()) return;
+      const [id, filter, page] = rest;
+      await prisma.telegramDraft.deleteMany({
+        where: { chatId: String(query.from.id), step: "deposit" },
       });
       const view = id ? await cardView(id, role, backFrom(filter, page)) : null;
       if (view) await edit(chatId, messageId, view);

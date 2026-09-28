@@ -52,6 +52,8 @@ export function buildApplicationText(
     price?: number | null;
     // Из неё — доплаты (показываем пометку «в т.ч. доплаты»)
     extras?: number;
+    // Предоплата (только владельцу): undefined — не показывать ни предоплату, ни остаток
+    deposit?: number;
     // Расход на заказ (только владельцу): undefined — не показывать ни расход, ни «заказ − расход»
     expenses?: number;
   } = {},
@@ -73,6 +75,13 @@ export function buildApplicationText(
         options.extras ? ` (в т.ч. доплаты ${formatRub(options.extras)})` : ""
       }`,
     );
+  }
+  if (options.deposit) financeLines.push(`Предоплата: ${formatRub(options.deposit)}`);
+  if (options.deposit !== undefined && (options.price || options.deposit)) {
+    const remainder = (options.price ?? 0) - options.deposit;
+    if (remainder > 0) financeLines.push(`Осталось доплатить: <b>${formatRub(remainder)}</b>`);
+    else if (remainder < 0) financeLines.push(`Переплата: ${formatRub(-remainder)}`);
+    else financeLines.push("Оплачено полностью");
   }
   if (options.expenses) financeLines.push(`Расход: ${formatRub(options.expenses)}`);
   if (options.expenses !== undefined && (options.price || options.expenses)) {
